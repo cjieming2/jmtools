@@ -1,0 +1,319 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+use Switch;
+
+=head1 NAME
+
+penncnv2tsv
+
+=head1 SYNOPSIS
+
+ penncnv2tsv [options] <penncnv-output>	
+
+  -h help
+  
+  --trio for trio output, which includes 2 more extra columns: relationship and triostate.
+  -o output directory name; optional, if not used, default directory is prefixed with cnv-tsv.
+  
+  This splits the PennCNV output file into a folder with files, quantity equal to the number of samples. 
+  Every of the file is tab-delimited, with headers:
+  1) sample-id
+  2) chromosome
+  3) start-pos
+  4) end-pos
+  5) num-snp
+  6) cnv-length
+  7) hmm-state
+  8) copy-number
+  9) start-snp
+  10) end-snp
+  11) confidence 
+  (if present in penncnv-output, else the entire column will be 0; note that this function is not available for trio data)
+  
+  Example:
+     penncnv2tsv -o jm samplecnv.rawcnv
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $trio = 0;
+my $outputdir = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'trio'=>\$trio, 'o=s'=>\$outputdir) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+
+# variables
+my $headerProcessed = 0;
+
+my $dir;
+
+if($outputdir eq 0)
+{
+	$dir = "cnv-tsv-$name";
+}
+else
+{
+	$dir = $outputdir;
+}
+
+my $columnNo = 0;
+my $currentColumnNo = 0;
+my %samplecount;
+
+mkdir($dir) || die "Unable to create directory $dir: $!";
+
+while (<INPUT>)
+{
+	## the input file is ssv
+	## trimming the end of line
+	s/\r?\n?$//;
+
+  #detects number of columns
+  ## converting them to tsv
+  $columnNo = s/\s+/\t/g + 1 if $.==1;
+  
+  ## counts the column no for this current line and see if it tallies with first line supposed header
+  $currentColumnNo = s/\s+/\t/g + 1;
+	
+	warn "Different number of columns detected in line $." if $columnNo != $currentColumnNo;
+	
+	my @f = split("\t",$_);
+	chomp @f;
+		
+	## exception calling
+	if($columnNo >= 8)
+	{
+		if((!$trio) && $f[7] =~ m/(father|mother|offspring)/)
+		{
+			rmdir($dir) || die "Unable to remove directory: $!";
+			die "This is trio data, please input the --trio option: $!";
+		}
+	}
+	else
+	{
+		if($trio)
+		{
+			rmdir($dir) || die "Unable to remove directory: $!";
+			die "This is NOT trio data, please remove the --trio option: $!";
+		}
+	}
+	
+	## split first column
+	my @chrPos = split("\:",$f[0]);
+	my $chro = substr($chrPos[0],3); ###
+	
+	my @posi = split("\-",$chrPos[1]);
+	my $startPos = $posi[0]; 				###
+	my $endPos = $posi[1];						###
+	
+	## variables
+	my $numSnp = 0;
+	my $cnvlength = 0;
+	my $copynum = 0;
+	my $hmmstate = 0;
+	my $startsnp;
+	my $endsnp;
+	my $conf = 0;
+	my $confflag = 0;
+	my $rship; # if trio
+	my $triohmmstate; # if trio
+	
+	## setting flag for confidence
+	if($columnNo == 8)
+	{
+		if((!$trio) && ($f[7] =~ m/conf\=/))
+		{
+			$confflag = 1;
+		}
+	}
+	
+	## split the columns 2nd,3rd,4th,6th,7th with equal signs
+	foreach my $i (1,2,3,5,6)
+	{
+		my @equals = split(/\=/,$f[$i]);
+		
+		if ($i==1)
+		{
+			$numSnp = $equals[1];
+		}
+		elsif ($i==2)
+		{
+			my @jm = split("\,",$equals[1]);
+			$cnvlength = join("",@jm);
+		}
+		elsif($i==3)
+		{
+			$copynum = $equals[1];
+			my @jj = split("\,",$equals[0]);
+			$hmmstate = substr($jj[0],5);
+		}
+		elsif($i==5)
+		{
+			$startsnp = $equals[1];
+		}
+		elsif($i==6)
+		{
+			$endsnp = $equals[1];
+		}
+		else
+		{
+			## nothing
+		}
+	}## for equal signs
+	
+	## field 8 - conf - is optional in penncnv
+	if($confflag)
+	{
+		my @equals = split(/\=/,$f[7]);
+		$conf = $equals[1];
+	}
+	
+	########################### sample name changeable here###########################
+	## sample 5th column
+	#my($xlname, $xlpath, $xlext) = fileparse($f[4], '\..*');
+	#my @xl = split(/\./,$f[4]);
+	#my $sample = $xlname;
+	#my $sample = $xl[1];
+	my $sample = $f[4];
+	
+	$samplecount{$sample}++;
+	
+	######## print file ##########
+	if($trio)
+	{
+		$rship = $f[7];
+		
+		my @lasttriocol = split(/\=/,$f[8]);
+		$triohmmstate = $lasttriocol[1];
+		
+		if ($samplecount{$sample} > 1)
+		{
+			## printing
+			## flag == 1 means for appending
+			print2filetrio(1,$dir,$sample,$chro,$startPos,$endPos,$numSnp,$cnvlength,
+										$hmmstate,$copynum,$startsnp,$endsnp,$rship,$triohmmstate);
+		}
+		elsif ($samplecount{$sample} == 1)
+		{
+			## this opens new file
+			print2filetrio(0,$dir,$sample,$chro,$startPos,$endPos,$numSnp,$cnvlength,
+										$hmmstate,$copynum,$startsnp,$endsnp,$rship,$triohmmstate);
+		}
+	}
+	else
+	{
+		if ($samplecount{$sample} > 1)
+		{
+			## printing
+			## flag == 1 means for appending
+			print2file(1,$dir,$sample,$chro,$startPos,$endPos,$numSnp,$cnvlength,
+										$hmmstate,$copynum,$startsnp,$endsnp,$conf);
+		}
+		elsif ($samplecount{$sample} == 1)
+		{
+			## this opens new file
+			print2file(0,$dir,$sample,$chro,$startPos,$endPos,$numSnp,$cnvlength,
+										$hmmstate,$copynum,$startsnp,$endsnp,$conf);
+		}
+	} ## if trio present
+}
+
+close (INPUT);
+
+#####################################################################
+## this function prints to file the parameters of each individual
+#####################################################################
+sub print2filetrio
+{
+	my ($flag,$dir,$sampleid,$chro,$startPos,$endPos,$numSnp,$cnvlength,
+					$hmmstate,$copynum,$startsnp,$endsnp,$rship,$triohmmstate) 
+	 = (shift,shift,shift,shift,shift,shift,shift,shift,shift,
+	 				shift,shift,shift,shift,shift);
+	
+	my $ofile = "$dir/$sampleid-rawcnv.tsv";
+	
+	if (!$flag)
+	{
+		open(OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+		
+		## print header
+		print OUTPUT "sample-id\tchromosome\tstart-pos\tend-pos\tnum-snp\t".
+									"cnv-length\thmm-state\tcopy-number\tstart-snp\t".
+									"end-snp\trship-in-trio\ttrio-hmm-state\n";
+		print OUTPUT join("\t",$sampleid,$chro,$startPos,$endPos,$numSnp,$cnvlength,
+					$hmmstate,$copynum,$startsnp,$endsnp,$rship,$triohmmstate);
+		print OUTPUT "\n";
+	}
+	elsif ($flag)
+	{
+		open(OUTPUT, ">>$ofile") || die "Cannot open $ofile: $!";
+		print OUTPUT join("\t",$sampleid,$chro,$startPos,$endPos,$numSnp,$cnvlength,
+					$hmmstate,$copynum,$startsnp,$endsnp,$rship,$triohmmstate);
+		print OUTPUT "\n";
+	}
+	
+	close(OUTPUT);	
+}
+
+#####################################################################
+## TRIO this function prints to file the parameters of each individual 
+#####################################################################
+sub print2file
+{
+	my ($flag,$dir,$sampleid,$chro,$startPos,$endPos,$numSnp,$cnvlength,
+					$hmmstate,$copynum,$startsnp,$endsnp,$conf) 
+	 = (shift,shift,shift,shift,shift,shift,shift,shift,shift,
+	 				shift,shift,shift,shift);
+	
+	my $ofile = "$dir/$sampleid-rawcnv.tsv";
+	
+	if (!$flag)
+	{
+		open(OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+		
+		## print header
+		print OUTPUT "sample-id\tchromosome\tstart-pos\tend-pos\tnum-snp\t".
+									"cnv-length\thmm-state\tcopy-number\tstart-snp\t".
+									"end-snp\tconfidence\n";
+		print OUTPUT join("\t",$sampleid,$chro,$startPos,$endPos,$numSnp,$cnvlength,
+					$hmmstate,$copynum,$startsnp,$endsnp,$conf);
+		print OUTPUT "\n";
+	}
+	elsif ($flag)
+	{
+		open(OUTPUT, ">>$ofile") || die "Cannot open $ofile: $!";
+		print OUTPUT join("\t",$sampleid,$chro,$startPos,$endPos,$numSnp,$cnvlength,
+					$hmmstate,$copynum,$startsnp,$endsnp,$conf);
+		print OUTPUT "\n";
+	}
+	
+	close(OUTPUT);	
+}

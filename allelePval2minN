@@ -1,0 +1,107 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+use Cwd;
+use Switch;
+
+=head1 NAME
+
+allelePval2minN
+
+=head1 SYNOPSIS
+
+ allelePval2minN [options] <>	
+
+  -h help
+  
+  binomialChart.txt:
+  0       1
+	1       1
+  col1: min n
+  col2: p-value
+  
+  pval-cutoff-rnaseq.txt:
+  HG00096 0.009286
+	HG00100 0.009399
+  col1: sample name
+  col2: p value cut off for each (rnaseq) set
+  
+  Example:
+     allelePval2minN -b binomialChart.txt pval-cutoff-rnaseq.txt
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $bfile = '';
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'b=s'=>\$bfile) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+#************************************* p value cutoff *******************************
+## input list
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## print to STDOUT
+
+#************************************* binomial Chart *******************************
+# binomial chart
+# col1 0-100 - assume a binomial n, and the probability that all are successes (or all are failures)
+# col2 p value cutoff
+
+## read file
+open (BFILE, $bfile) || die "Cannot open $bfile: $!";
+my @bees = <BFILE>;
+chomp @bees;
+
+## variable
+my $minN;
+my $maxP;
+
+############## read input list ##############
+while (<INPUT>)
+{
+	chomp $_;
+	s/\r?\n?$//;
+	
+	my @fields = split(/\t/,$_);
+	
+	## take p value and loop binomial chart to compare
+	for(my $i=0; $i<@bees; $i++)
+	{
+		if($fields[1] > $bees[$i])
+		{
+			$minN = $i;
+			$maxP = $bees[$i];
+			last;
+		}
+	}
+	
+	
+	## output
+	print "$fields[0]\t$fields[1]\t$minN\t$maxP\n";
+	
+	
+} # while INPUT
+
+close(BFILE);
+close(INPUT);

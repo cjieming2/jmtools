@@ -1,0 +1,2 @@
+#!/bin/csh
+nohup matlab -nodisplay < $1 > $2 &

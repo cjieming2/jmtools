@@ -1,0 +1,94 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+alleleCountIndConfident
+
+=head1 SYNOPSIS
+
+ -h help
+ -c column number (1-based) in which the column to choose the values are
+ delimiter ';' (default)
+  
+  This script takes in a BED file, picks the column and add a new col that 
+  shows the count of the number of similar things in that column.
+  e.g. chr22   51206412        51206413        23      NA07357;NA20802;NA11994	A;A;A
+  
+  OUTPUTS: the counts arranged in descending order of counts
+  
+  USAGE:
+     alleleCountIndConfident -c 2 interestingSnp.bed
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $delim = ';';
+my $col = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'c=i'=>\$col) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+
+if($col == 0)
+{
+	die "column cannot be $col";
+}
+
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+# read input file
+LINE1:while (<INPUT>)
+{
+	# variables
+	my %things2count;
+	my $flag = 0;
+	
+	s/\r?\n?$//;
+	chomp $_;
+	my @fields = split(/\t/, $_);
+	my @things = split(/;/, $fields[($col-1)]);
+	
+	for my $allele (@things)
+	{
+		if(!exists($things2count{$allele})){ $things2count{$allele} = 1;	}
+		else{ $things2count{$allele}++;	}
+	}
+	
+	## print
+	print $_, "\t";
+	
+	for my $kkey (sort {$things2count{$b} <=> $things2count{$a}} keys %things2count)
+	{
+		if($flag == 1){ print "|";}
+		print $kkey,":",$things2count{$kkey};
+		$flag = 1;
+	}
+	print "\n";
+}
+
+close(INPUT);
+	

@@ -1,0 +1,147 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use Getopt::Long;
+use Cwd;
+use File::Basename;
+use Pod::Usage;
+
+=head1 NAME
+
+eigenpca2fpca
+
+=head1 SYNOPSIS
+
+eigenpca2fpca [options]
+  
+ -h         help
+ -s			egeno.sample file containing sample id of pca result
+ -p			pca result file returned from eigenstrat pca module
+ -e			eval result file returned from eigenstrat pca module
+ -o			output basefile name to save updated pca and eval output file
+ 
+ example: eigenpca2fpca -s study1.egeno.sample -p study1.pca -e study1.eval -o study1result
+ 
+ Merge and generate the row and column header for the pca result files and calculate the amount of variance from the eigenstrat pca output files and format it to fpca output
+ 
+ Outputs <output basefile name>.pca and <output basefile name>.eval
+ 
+ 
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $sampleFile;
+my $pcaFile;
+my $evalFile;
+my $outBaseFile;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 's=s'=>\$sampleFile, 'p=s'=>\$pcaFile, 'e=s'=>\$evalFile, 'o=s'=>\$outBaseFile)
+   || !defined($sampleFile)
+   || !defined($pcaFile)
+   || !defined($evalFile)
+   || !defined($outBaseFile))
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+open(SAMPLE_FIL, "$sampleFile") || die "Cannot open $sampleFile\n";
+open(PCA_FIL, "$pcaFile") || die "Cannot open $pcaFile\n";
+open(OUT_PCA_FIL, ">$outBaseFile.pca") || die "Cannot open $pcaFile\n";
+
+my $numOfPCA = <PCA_FIL>;
+$numOfPCA =~ s/^\s+//;	$numOfPCA =~ s/\s+$//;		#remove leading and trailing whitespaces
+
+die "Invalid pca file format. Unable to retrieve number of PCs in pca file" if($numOfPCA !~ /^[\d]+$/);
+
+my $header = "sample-id";
+for (my $row = 1; $row <= $numOfPCA; $row++) {
+	$header = $header."\tPC$row";
+	<PCA_FIL>;
+}
+<SAMPLE_FIL>;	#skip first header row in sample file
+
+print "\nGenerating file $outBaseFile.pca ...\n";
+print OUT_PCA_FIL "$header\n";
+
+my $numOfSample = 0;
+while(<PCA_FIL>) {
+	chomp;
+	$_ =~ s/^\s+//;	$_ =~ s/\s+$//;		#remove leading and trailing whitespaces
+	my $colNo = s/\s\s*/\t/g + 1;
+	die "Invalid number of columns in PCA results encountered." if($colNo != $numOfPCA);
+	my $line = $_;
+	
+	my $sampleId = <SAMPLE_FIL>;
+	chomp($sampleId);
+	
+	print OUT_PCA_FIL "$sampleId\t$line\n";
+	
+	$numOfSample++;
+}
+
+close(SAMPLE_FIL);
+close(PCA_FIL);
+close(OUT_PCA_FIL);
+
+open(EVAL_FIL, "$evalFile") || die "Cannot open $pcaFile\n";
+open(OUT_EVAL_FIL, ">$outBaseFile.eval") || die "Cannot open $pcaFile\n";
+
+print "Generating file $outBaseFile.eval ...\n";
+
+my @eigenValues = ();
+my $totalEigenValue = 0;
+
+while (<EVAL_FIL>) {
+	chomp;
+	my $eigenValue = $_;
+	$totalEigenValue = $totalEigenValue + $eigenValue;
+	push @eigenValues, $eigenValue;
+}
+close(EVAL_FIL);
+
+print OUT_EVAL_FIL "PC\teigenvalue\tpercentage-of-variance\n";
+
+for (my $cnt = 0; $cnt < scalar @eigenValues; $cnt++) {
+	print OUT_EVAL_FIL "PC" . ($cnt + 1) . "\t$eigenValues[$cnt]\t" . ($eigenValues[$cnt] / $totalEigenValue) . "\n";
+}
+
+close (OUT_EVAL_FIL);
+
+print "\nNumber of PCs in pca file:\t $numOfPCA\n";
+print "Number of samples in pca file:\t $numOfSample\n";
+print "Number of eigenvalues read in eval file:\t " . scalar @eigenValues . "\n";
+print "Total eigenvalues:\t $totalEigenValue\n";
+print "\n";
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

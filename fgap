@@ -1,0 +1,111 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+use Cwd;
+
+=head1 NAME
+
+fgap
+
+=head1 SYNOPSIS
+
+ fgap [options] <inputfile>	
+
+  -h help
+  
+  INPUT:
+  <inputfile>
+  tsv file - tab-delimited file only
+  
+  -g the missing value in the file, put in inverted commas. default is "", i.e. a blank.
+  -h the new missing value put in inverted commas, default is "NA"
+  
+  OUTPUT:
+  fgap-<inputfilename>
+  fills up all the missing values (e.g. a blank, which is hard to use sed to replace) with another missing value (e.g. NA)
+  
+                
+  Example:
+     fgap -g "" file.txt
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $oldmval = "";
+my $newmval = "\"NA\"";
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'g=s'=>\$oldmval, 'h=s'=>\$newmval) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input list
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+my $ofile = "fgap-$name\.txt";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+## parse missing value
+if($oldmval ne "")
+{
+	$oldmval =~ m/^\"(.*)\"$/;
+	$oldmval = $1;
+}
+$newmval =~ m/^\"(.*)\"$/;
+$newmval = $1;
+
+print "missingvalue=|$oldmval|\n"; # debug
+print "newmissingvalue=|$newmval|\n"; # debug
+
+## variables
+	
+############## read input list ##############
+while (<INPUT>)
+{
+#	chomp $_;
+	my @fields = split(/\t/,$_);
+	chomp @fields;
+	
+#	print join('|',@fields)."\n"; ##debug
+		
+	for (my $i=0;$i<@fields;$i++)
+	{
+		if($fields[$i] eq $oldmval)
+		{
+			if($i==0){	print OUTPUT "$newmval";	}
+			else{	print OUTPUT "\t$newmval";			}
+		}
+		else
+		{
+			if($i==0){	print OUTPUT "$fields[$i]"; }
+			else{	print OUTPUT "\t$fields[$i]";  	 }
+		}
+	}
+	print OUTPUT "\n";
+}
+
+
+close(OUTPUT);
+close(INPUT);
+	

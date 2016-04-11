@@ -1,0 +1,116 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+blosum
+
+=head1 SYNOPSIS
+
+ -h help
+ 
+ -b blosum file; space-delimited; first char is "#" to signify header
+ -c column number (1-based) in which the column to choose the aa changes are
+  
+  This script picks the column user defined to give BLOSUM score from -b file.
+  No header please.
+  
+  USAGE:
+     blosum -b blosum62.txt -c 2 snp.bed
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $col = 0;
+my $blosum = '';
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'b=s'=>\$blosum, 'c=i'=>\$col) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+
+if($col == 0)
+{
+	die "column cannot be $col";
+}
+
+
+
+######################################################
+## read blosum file
+open(BLOSUM, $blosum) || die "Cannot open $blosum: $!";
+
+## variables
+my @aa;
+my %aa2aa;
+
+## reading blosum
+while(<BLOSUM>)
+{
+	s/\r?\n?$//;
+	chomp $_;
+	
+	my @bfields = split(/ /, $_);
+	
+	## first line; capture all aas
+	if($bfields[0] eq "#")
+	{
+		@aa = @bfields;
+		next;
+	}
+	
+	my $thisaa = $bfields[0];
+	for (my $i=1;$i<@aa;$i++)
+	{
+		$aa2aa{$thisaa}{$aa[$i]} = $bfields[$i];
+	}
+}
+
+close(BLOSUM);
+
+# read input file
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+# variables
+
+
+LINE1:while (<INPUT>)
+{
+	s/\r?\n?$//;
+	chomp $_;
+	my @fields = split(/\t/, $_);
+	
+	$fields[9] = m/.*(.)->(.)\t/;
+	my $aa1 = uc($1);
+	my $aa2 = uc($2);
+	
+	if(!exists($aa2aa{$aa1}{$aa2})){ die "$aa1 || $aa2 does not exist in matrix!: $!"; }
+	
+	print $_."\t".$aa1."->".$aa2."\t".$aa2aa{$aa1}{$aa2}."\n";
+}
+
+
+close(INPUT);
+	

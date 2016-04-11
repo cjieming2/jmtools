@@ -1,0 +1,223 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+use Cwd;
+use Switch;
+
+=head1 NAME
+
+naccesscsa2noncsa
+
+=head1 SYNOPSIS
+
+ naccesscsa2noncsa [options] <>	
+
+  -h help
+  
+  INPUT:
+  1) This script takes a single log file of the output of naccess2csa.
+  2) The file should have the header:
+  chain_pos_aa    atom    category        complex_asa     chain_asa       csa     percentage
+  
+  PROCESS:
+  It takes the file, calculates the NON-CSA percentage ali, aro, pol, chg, hphob, hphil by chain1, chain2 and chain1+2 complex.
+ 
+  OUTPUT:
+  This is STD OUTPUT.
+ 
+  Example:
+     naccesscsa2noncsa naccess_rsaOutput_1YRU.log > naccess_rsaOutput_1YRU.log.noncsa
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input list
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+
+## variables
+my $readheader = 0;
+my %header2col;
+my %chain2asa;
+my %complex2asa;
+my %csa;
+
+$complex2asa{'ali'} = 0;
+$complex2asa{'aro'} = 0;
+$complex2asa{'pol'} = 0;
+$complex2asa{'chg'} = 0;
+$complex2asa{'total'} = 0;
+$complex2asa{'hphob'} = 0;
+$complex2asa{'hphil'} = 0;
+	
+
+############## read input list ##############
+### make id from ifilename
+$ifile =~ m/.*_.*_(.*).log/g;
+my $pdbid = $1;
+
+while (<INPUT>)
+{
+	chomp $_;
+	s/\r?\n?$//;
+	my @fields = split('\t',$_);
+
+	### process header 
+	if($readheader == 0)
+	{
+		SEARCH_LABEL: for my $header ('chain_pos_aa', 'atom', 'category', 'complex_asa', 'chain_asa', 'csa', 'percentage')
+		{
+			for my $col (0 .. $#fields)
+			{
+				if($fields[$col] eq $header)
+				{	
+					$header2col{$header} = $col;
+					next SEARCH_LABEL;
+				}
+			}
+			die "Cannot find $header in $ifile";
+		}
+		
+		$readheader = 1;
+	}
+	else
+	{
+		## split the first col once by _ to find chain#id
+		my @chain1 = split(/_/, $fields[$header2col{'chain_pos_aa'}]);
+		my $chain = $chain1[0];
+		#print "$fields[$header2col{'chain_pos_aa'}]||$chain||\n"; ##debug
+		
+		## initialize ctrs for chain_category 
+		if(!exists($chain2asa{$chain}))
+		{
+			$chain2asa{$chain}{'ali'} = 0;
+			$chain2asa{$chain}{'aro'} = 0;
+			$chain2asa{$chain}{'pol'} = 0;
+			$chain2asa{$chain}{'chg'} = 0;
+			$chain2asa{$chain}{'total'} = 0;
+			$chain2asa{$chain}{'hphob'} = 0;
+			$chain2asa{$chain}{'hphil'} = 0;
+			
+			$csa{$chain}{'ali'} = 0;
+			$csa{$chain}{'aro'} = 0;
+			$csa{$chain}{'pol'} = 0;
+			$csa{$chain}{'chg'} = 0;
+			$csa{$chain}{'total'} = 0;
+			$csa{$chain}{'hphob'} = 0;
+			$csa{$chain}{'hphil'} = 0;
+		}
+		
+		##debug		
+		#print "$chain2asa{$chain}{'ali'};$chain2asa{$chain}{'aro'};$chain2asa{$chain}{'pol'};$chain2asa{$chain}{'chg'};$chain2asa{$chain}{'total'};$chain2asa{$chain}{'hphob'};$chain2asa{$chain}{'hphil'}\n";
+				
+		## store by chain and category
+		switch ($fields[$header2col{'category'}])
+		{
+			case "ali" 
+			{ $chain2asa{$chain}{'ali'}   = $chain2asa{$chain}{'ali'}   + $fields[$header2col{'chain_asa'}]; 
+				$chain2asa{$chain}{'hphob'} = $chain2asa{$chain}{'hphob'} + $fields[$header2col{'chain_asa'}];
+				$complex2asa{'ali'}         = $complex2asa{'ali'}         + $fields[$header2col{'complex_asa'}];
+				$complex2asa{'hphob'}       = $complex2asa{'hphob'}       + $fields[$header2col{'complex_asa'}];
+				$csa{$chain}{'ali'}                 = $csa{$chain}{'ali'}                 + $fields[$header2col{'csa'}];        			
+				$csa{$chain}{'hphob'}               = $csa{$chain}{'hphob'}               + $fields[$header2col{'csa'}];              }
+			
+			case "aro" 
+			{ $chain2asa{$chain}{'aro'}   = $chain2asa{$chain}{'aro'}   + $fields[$header2col{'chain_asa'}]; 
+				$chain2asa{$chain}{'hphob'} = $chain2asa{$chain}{'hphob'} + $fields[$header2col{'chain_asa'}];
+				$complex2asa{'aro'}         = $complex2asa{'aro'}         + $fields[$header2col{'complex_asa'}];
+				$complex2asa{'hphob'}        = $complex2asa{'hphob'}       + $fields[$header2col{'complex_asa'}];
+				$csa{$chain}{'aro'}                 = $csa{$chain}{'aro'}                 + $fields[$header2col{'csa'}];        			
+				$csa{$chain}{'hphob'}               = $csa{$chain}{'hphob'}               + $fields[$header2col{'csa'}];              }
+			
+			case "pol" 
+			{ $chain2asa{$chain}{'pol'}   = $chain2asa{$chain}{'pol'}   + $fields[$header2col{'chain_asa'}]; 
+				$chain2asa{$chain}{'hphil'} = $chain2asa{$chain}{'hphil'} + $fields[$header2col{'chain_asa'}];
+				$complex2asa{'pol'}         = $complex2asa{'pol'}         + $fields[$header2col{'complex_asa'}];
+				$complex2asa{'hphil'}        = $complex2asa{'hphil'}       + $fields[$header2col{'complex_asa'}];
+				$csa{$chain}{'pol'}                 = $csa{$chain}{'pol'}                 + $fields[$header2col{'csa'}];        			
+				$csa{$chain}{'hphil'}               = $csa{$chain}{'hphil'}               + $fields[$header2col{'csa'}];              }
+			
+			case "chg" 
+			{ $chain2asa{$chain}{'chg'}   = $chain2asa{$chain}{'chg'}   + $fields[$header2col{'chain_asa'}]; 
+				$chain2asa{$chain}{'hphil'} = $chain2asa{$chain}{'hphil'} + $fields[$header2col{'chain_asa'}];
+				$complex2asa{'chg'}         = $complex2asa{'chg'}         + $fields[$header2col{'complex_asa'}];
+				$complex2asa{'hphil'}        = $complex2asa{'hphil'}       + $fields[$header2col{'complex_asa'}];
+				$csa{$chain}{'chg'}                 = $csa{$chain}{'chg'}                 + $fields[$header2col{'csa'}];        			
+				$csa{$chain}{'hphil'}               = $csa{$chain}{'hphil'}               + $fields[$header2col{'csa'}];              }
+		}
+		
+		## store total
+		$chain2asa{$chain}{'total'}   = $chain2asa{$chain}{'total'}   + $fields[$header2col{'chain_asa'}];
+		$complex2asa{'total'}					= $complex2asa{'total'}         + $fields[$header2col{'complex_asa'}];
+		$csa{$chain}{'total'}							    = $csa{$chain}{'total'}             + $fields[$header2col{'csa'}];
+	}	
+}
+
+close(INPUT);
+
+############## output #######################
+## print header in README
+my $ofile = "README";
+open(OUTPUT, ">$ofile") || die "Cannot open $ofile";
+print OUTPUT <<BLK; 
+pdbid
+chain1	ali	aro	pol	chg	total	hphob	hphil	
+chain1_csa	ali	aro	pol	chg	total	hphob	hphil
+chain2	ali	aro	pol	chg	total	hphob	hphil	
+chain2_csa	ali	aro	pol	chg	total	hphob	hphil
+complex	ali	aro	pol	chg	total	hphob	hphil
+BLK
+close (OUTPUT);
+
+## print data in STDOUT
+printf "$pdbid\.pdb\t";
+
+for my $chainkey (sort keys %chain2asa )
+{
+	print "$chainkey\t";
+	for my $catkey ('ali','aro','pol','chg','total','hphob','hphil')
+	{
+		printf "%.3f\t", $chain2asa{$chainkey}{$catkey};
+	}
+	
+	print "$chainkey\_csa\t";
+	for my $catkey ('ali','aro','pol','chg','total','hphob','hphil')
+	{
+		printf "%.3f\t", $csa{$chainkey}{$catkey};
+	}
+}
+
+print "complex\t";
+for my $catkey ('ali','aro','pol','chg','total','hphob','hphil')
+{
+	printf "%.3f\t", $complex2asa{$catkey};
+}
+
+
+
+print "\n";

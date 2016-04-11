@@ -1,0 +1,155 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+use Cwd;
+use Switch;
+
+=head1 NAME
+
+gtfParser
+
+=head1 SYNOPSIS
+
+ gtfParser [options] <>	
+
+  -h help
+  -m mode; default mode 1; 
+  			mode 1 = gtf2bed
+  			mode 2 = gtf2bed + subdivide UTR into 5' and 3' based on the strand and ends of gene
+ 
+  
+  Example:
+     gtfParser -m 2 jm.gtf
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $mode = 1;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'm=s'=>\$mode) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+### adapted from gencode website http://www.gencodegenes.org/gencodeformat.html
+## input GTF
+my $ifile = $ARGV[0];
+open(INPUT, "<$ifile") or die "Can't open $ifile.\n";
+
+## variables
+my %all_genes;
+my $transcript_id = 'none';
+my %transcript = ();
+my $current_transcript = '';
+my $transcript_start = 0;
+my $transcript_end = 0;
+
+
+while(<INPUT>)
+{
+	## parse the GTF
+  next if(/^##/); #ignore header
+  chomp;
+    
+  my %attribs = ();
+  my ($chr, $source, $type, $start, $end, $score, 
+    $strand, $phase, $attributes) = split("\t");
+  #store nine columns in hash
+  my %fields = (
+    chr        => $chr,
+    source     => $source,
+    type       => $type,
+    start      => $start,
+    end        => $end,
+    score      => $score,
+    strand     => $strand,
+    phase      => $phase,
+    attributes => $attributes,
+  );
+  my @annotation = split(";", $attributes);
+  
+  # store ids and additional information in second hash
+  foreach my $attr ( @annotation ) {
+     next unless $attr =~ /^\s*(.+)\s(.+)$/;
+     my $c_type  = $1;
+     my $c_value = $2;
+     if($c_type  && $c_value){
+       if(!exists($attribs{$c_type})){
+         $attribs{$c_type} = [];
+       }
+       push(@{ $attribs{$c_type} }, $c_value);
+     }
+  }
+#  #work with the information from the two hashes...
+#  #eg. store them in a hash of arrays by gene_id:
+#  if(!exists($all_genes{$attribs{'gene_id'}->[0]})){
+#    $all_genes{$attribs{'gene_id'}->[0]} = [];
+#  }
+#  push(@{ $all_genes{$attribs{'gene_id'}->[0]} }, \%fields);
+  
+  ## mode 1: gtf2bed in order of GTF
+  if($mode == 1)
+  {
+  	my $bedstart = $fields{'start'} - 1;
+  	print "$fields{'chr'}\t$bedstart\t$fields{'end'}\t$fields{'source'}\t$fields{'type'}".
+  					"\t$fields{'score'}\t$fields{'strand'}\t$fields{'phase'}\t$fields{'attributes'}\n";
+  }
+  elsif($mode == 2) # mode 2 gtf2bed  adapted from http://davetang.org/muse/2013/01/18/defining-genomic-regions/
+  {
+  	if ($type eq 'transcript'){
+      foreach my $annot (@annotation){
+         my ($ntype,$name) = split(/\s+/,$annot);
+         if ($ntype eq 'transcript_id'){
+            $current_transcript = $name;
+            $current_transcript =~ s/\"//g;
+            $transcript_start = $start;
+            $transcript_end = $end;
+         }
+      }
+      if ($current_transcript eq 'none'){
+         die "No name for entry $.\n";
+      }
+   	}
+ 
+	  if ($type eq 'UTR'){
+	      my $region = '';
+	      if ($strand eq '+'){
+	         my $dis_to_start = abs($start - $transcript_start);
+	         my $dis_to_end = abs($start - $transcript_end);
+	         $region = $dis_to_start < $dis_to_end ? '5_UTR' : '3_UTR';
+	      } else {
+	         my $dis_to_start = abs($end - $transcript_end);
+	         my $dis_to_end = abs($end - $transcript_start);
+	         $region = $dis_to_start < $dis_to_end ? '5_UTR' : '3_UTR';
+	      }
+	      print join ("\t", $chr, $start, $end, $region, 0, $strand),"\n";
+	  }
+  }
+  
+  
+} # while INPUT
+
+#print "Example entry ENSG00000223972: ".
+#  $all_genes->{"ENSG00000223972"}->[0]->{"type"}.", ".
+#  $all_genes->{"ENSG00000223972"}->[0]->{"chrom"}." ".
+#  $all_genes->{"ENSG00000223972"}->[0]->{"start"}."-".
+#  $all_genes->{"ENSG00000223972"}->[0]->{"end"}."\n";
+
+close(INPUT);

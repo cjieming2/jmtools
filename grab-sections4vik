@@ -1,0 +1,104 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+grab-sections4vik
+
+=head1 SYNOPSIS
+
+ grab-sections4vik [options] <file>	
+
+  -h help
+  -w word to recognise
+  
+  The script works on a tab-delimited file with sections, demarcated by a word.
+  It finds the FIRST word on a tab-delimited line that signifies a section, so the script will grab those lines between 2 of the same words and output as a file.
+  Creates a folder to keep all these files.  
+  
+  Example:
+     grab-sections4vik -w snp-id jm.txt
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $word='';
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'w=s'=>\$word) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+if($word eq '')
+{
+	die "-w option is required!";
+}
+
+## input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file and dir
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+my $dir = "sections-$word-$name";
+mkdir ($dir) || die "Cannot create directory $dir: $!";
+
+# variables
+my $wordflag = 0;
+my $withinsection = 0;
+my $count = 0;
+
+LINE:while(<INPUT>)
+{
+	chomp $_;
+	my @field = split(/\t/,$_,2);
+	chomp @field;
+	
+	if(defined($field[0]) && $field[0] =~ m/^($word)/)
+	{
+		WORD:if(!$wordflag) ## first time 
+		{
+			$count++;
+			my $ofile = "$dir/section-$count-$word$ext";
+			open(OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+			
+			print OUTPUT "$_\n";
+			$wordflag = 1;
+			$withinsection = 1;
+			next LINE;
+		}
+		else ## second time which marks also the first time of the next section
+		{
+			$wordflag = 0;
+			$withinsection = 0;
+			close(OUTPUT);
+			goto WORD;
+		}
+	}
+	elsif($withinsection) ## doesnt match word and is within the section
+	{
+		print OUTPUT "$_\n";
+	}
+}
+
+close(INPUT);
+close(OUTPUT);

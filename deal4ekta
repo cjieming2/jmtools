@@ -1,0 +1,399 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+deal4ekta
+
+=head1 SYNOPSIS
+
+ deal4ekta -options [input file]
+
+  -h help
+
+  Example:
+     deal4ekta -o output1.txt -j nshomo -g geno.txt input.txt
+
+ Input files:
+ 1) [input file] pathway file
+ - Species Upstream_Enzyme Downstream_Enzyme       U_chromosome-position   U_allele_ref    U_allele_alt    U_snp_type      D_chromosome-position   D_allele_ref 	_allele_alt    D_snp_type
+human   ENSP00000416583 ENSP00000416583 12-16002472     C       G       synonymous      12-16002472     C       G       synonymous
+
+ - default filename: pathway.txt
+
+ 2) -g genotype file
+ - in vcf format but add the first column as CHROM-POS and 2nd as enzyme and then transpose:
+ COL: CHROM-POS       protein CHROM   POS     ID      REF     ALT     QUAL    FILTER INFO     FORMAT  NA06985
+ ROW: CHROM-POS  1-1674332       1-1675900       1-1675941       1-2431218	1-2434274 (SNPs)
+ - default filename: genotype.txt
+ - please note that your genotype file must have more proteins than your pathway files; the script doesnt check - there will be errors otherwise
+ 
+ 3) -o output file name
+ 4) -j output freq matrix on which upstream enzyme: n|s|nshomo (default)|nshetero|pshomo|pshetero|rshomo|rshetero
+ 
+ Output files: -o
+ - outputs the number of samples in the genotype file on-screen
+ - provide the main filename
+ a) frequency matrix file
+ default filename: output.txt
+ > contains a nxn matrix of all the enzymes in the pathway file
+ > the frequency denominator is the total num of samples
+ > in this order upstream>n|s|nshomo|nshetero|pshomo|pshetero|rshomo|rshetero; 'NA' for no such upstream>downstream pair amongst the samples in question
+ 
+ b) adjacency matrix 
+ default filename: output.txt.adj
+ > contains the same nxn matrix for all the enzymes in the pathway file
+ > the first col is the upstream enzyme and a '1' in that row denotes an immediate downstream (adjacent) enzyme represented by the col
+ > can feed both files into MATLAB to obtain frequencies for only those with '1's by doing a scalar multiplication of the matrices
+ 
+ currently now the script can only do an adjacency matrix
+ but it can potentially be modified to output any matrices (eg all downstream enzymes)
+
+=head1 DESCRIPTION
+
+=cut
+
+## option variables (alow user input) /defaults
+my $help;
+my $pfile = 'pathway.txt';
+my $gtFile = 'genotype.txt';
+my $adjFile = 'output.adj';
+my $uuu = 'nshomo';
+my $ofile = 'output-'.$uuu.'.txt';
+
+## initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'o=s'=>\$ofile, 'g=s'=>\$gtFile, 'j=s'=>\$uuu) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+$ofile = $uuu.'.'.$ofile.'.out';
+## input file
+$pfile = $ARGV[0];
+
+open (PATHWAY, $pfile) || die "Cannot open $pfile: $!";
+open (GT, $gtFile) || die "Cannot open $gtFile: $!";
+
+## output file
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+## variables
+my $headerProcessed = 0;
+my %header2col;
+my %PWadj;
+my %PROTJM;
+
+## read input file
+while (<PATHWAY>)
+{
+	# removes all the starting and trailing spaces
+	# and condense all spaces in between words into tabs
+	chomp;
+	s/^ \ //g; s/\ $//g;
+	s/[\ \t]+/\t/g;
+	s/(nonsynonymous)/ns/g;
+	s/(synonymous)/s/g;
+	s/^n\/a/n/g;
+	s/(prematureStop)/ps/g;
+	s/(removedStop)/rs/g;
+
+	my @line = split("\t",$_);
+
+	# process header
+	if(!$headerProcessed)
+	{
+		for (my $i=0; $i<@line; $i++)
+		{
+			$header2col{$line[$i]} = $i;
+		}
+
+		$headerProcessed = 1;
+	}
+	else
+	{
+		my $Usnptype = $line[$header2col{'U_snp_type'}];;
+		my $Dsnptype = $line[$header2col{'D_snp_type'}];;
+
+		my $Uchrpos = $line[$header2col{'U_chromosome-position'}];
+		my $Dchrpos = $line[$header2col{'D_chromosome-position'}];
+		my $Uref = $line[$header2col{'U_allele_ref'}];
+		my $Ualt = $line[$header2col{'U_allele_alt'}];
+		my $Uechrpos = "$Uchrpos-$Uref\/$Ualt";
+		my $UenzymeID = $line[$header2col{'Upstream_Enzyme'}];
+		
+		my $Dref = $line[$header2col{'D_allele_ref'}];
+		my $Dalt = $line[$header2col{'D_allele_alt'}];
+		my $Dechrpos = "$Dchrpos-$Dref\/$Dalt";
+		my $DenzymeID = $line[$header2col{'Downstream_Enzyme'}];
+		
+		my $Uenzyme = $UenzymeID.'-'.$Uechrpos;
+		my $Denzyme = $DenzymeID.'-'.$Dechrpos;
+		
+		if(!exists($PROTJM{$Uenzyme}))
+		{
+			$PROTJM{$Uenzyme} = $Usnptype;
+		}
+		elsif(exists($PROTJM{$Uenzyme}) && ($PROTJM{$Uenzyme} ne $Usnptype))
+		{
+			warn "$UenzymeID $PROTJM{$Uenzyme} exist before now $Usnptype";
+		}
+		
+		if(!exists($PROTJM{$Denzyme}))
+		{
+			$PROTJM{$Denzyme} = $Dsnptype;
+		}
+		elsif(exists($PROTJM{$Denzyme}) && ($PROTJM{$Denzyme} ne $Dsnptype))
+		{
+			warn "$DenzymeID $PROTJM{$Denzyme} exist before now $Dsnptype";
+		}
+		
+		
+		##debug
+#		print "U|$Uenzyme|$PROTJM{$Uenzyme}|$Usnptype|";
+#		print "D|$Denzyme|$PROTJM{$Denzyme}|$Dsnptype|\n";
+		
+		# adjacency matrix
+		$PWadj{$UenzymeID}{$DenzymeID} = 1;
+	}
+}
+
+## variables
+my @col2prot;
+my @col2chrpos;
+my %GENO;
+my @samples;
+
+my @refallele;
+my @altallele;
+
+## read genotype file
+while(<GT>)
+{
+	# removes all the starting and trailing spaces
+	# and condense all spaces in between words into tabs
+	chomp;
+	s/^ \ //g; s/\ $//g;
+	s/[\ \t]+/\t/g;
+	s/\//|/g;
+
+	my @line = split(/\t/,$_);
+	# process the header of the transposed gt file (which is snps on header, samples per row)
+	# first row contains the snps chr-pos
+	if($line[0] eq 'CHROM-POS')
+	{
+		for (my $i=1; $i<@line; $i++)
+		{
+			$col2chrpos[$i] = $line[$i];
+		}
+	}
+	elsif($line[0] eq 'protein')
+	{
+		for (my $i=1; $i<@line; $i++)
+		{
+			$col2prot[$i] = $line[$i];
+		}
+	}
+	elsif($line[0] eq 'REF')
+	{
+		for (my $i=1; $i<@line; $i++)
+		{
+			$refallele[$i] = $line[$i];
+		}
+	}
+	elsif($line[0] eq 'ALT')
+	{
+		for (my $i=1; $i<@line; $i++)
+		{
+			$altallele[$i] = $line[$i];
+		}
+	}
+	elsif($line[0] =~ m/^NA/)
+	{
+		push(@samples, $line[0]);
+
+		for (my $i=1; $i<@line; $i++)
+		{
+			my $name = "$col2prot[$i]-$col2chrpos[$i]-$refallele[$i]\/$altallele[$i]";
+			my @genotype = split(/:/,$line[$i]);
+						
+			# note that $line[0] from here on is the sampleID
+			if($genotype[0] eq '0|0')
+			{
+				$GENO{$line[0]}{$name} = 'n';
+			}
+			else
+			{
+				if($PROTJM{$name} eq 's')
+				{
+					$GENO{$line[0]}{$name} = 's';
+				}
+				elsif($PROTJM{$name} eq 'ns' && ($genotype[0] eq '1|0' || $genotype[0] eq '0|1'))
+				{
+					$GENO{$line[0]}{$name} = 'nshetero';
+				}
+				elsif($PROTJM{$name} eq 'ns' && $genotype[0] eq '1|1')
+				{
+					$GENO{$line[0]}{$name} = 'nshomo';
+				}
+				elsif($PROTJM{$name} eq 'ps' && ($genotype[0] eq '1|0' || $genotype[0] eq '0|1'))
+				{
+					$GENO{$line[0]}{$name} = 'pshetero';
+				}
+				elsif($PROTJM{$name} eq 'ps' && $genotype[0] eq '1|1')
+				{
+					$GENO{$line[0]}{$name} = 'pshomo';
+				}
+				elsif($PROTJM{$name} eq 'rs' && ($genotype[0] eq '1|0' || $genotype[0] eq '0|1'))
+				{
+					$GENO{$line[0]}{$name} = 'rshetero';
+				}
+				elsif($PROTJM{$name} eq 'rs' && $genotype[0] eq '1|1')
+				{
+					$GENO{$line[0]}{$name} = 'rshomo';
+				}
+				else
+				{
+					warn "undefined sample genotype $PROTJM{$name}|$line[0]-$genotype[0]:$!";
+				}
+			}
+			## debug
+#			print "|$line[0]|$name|$GENO{$line[0]}{$name}|\n";
+		}
+	}
+} # while loop in data file
+
+
+## print to output-adjacency
+$adjFile = "$ofile.adj";
+open (ADJ, ">$adjFile") || die "Cannot open $adjFile: $!";
+my $Uctr = 0;
+my $Dctr = 0;
+my %mat;
+
+## this prints the first row
+print ADJ "Upstream_enzyme";
+print OUTPUT "Upstream_enzyme";
+foreach my $enz (sort (keys(%PROTJM)))
+{
+	my @zzz = split(/\-/,$enz,2);
+	print ADJ "\t$zzz[0]";
+	print OUTPUT "\t$zzz[0]";
+}
+print ADJ "\n";
+print OUTPUT "\n";
+
+# num of samples
+my $numsamples = @samples;
+
+
+# print adj matrix
+# populate counts of upstream>downstream
+foreach my $zzz (sort (keys %PROTJM))
+{
+	my @aaa = split(/\-/,$zzz,2);
+	my $enzU = $aaa[0];
+	print ADJ "$enzU";
+
+	foreach my $yyy (sort (keys %PROTJM))
+	{
+		my @bbb = split(/\-/,$yyy,2);
+		my $enzD = $bbb[0];
+	
+		## print to adj matrix
+		if(exists($PWadj{$enzU}{$enzD}))
+		{
+			print ADJ "\t$PWadj{$enzU}{$enzD}";
+		}
+		else
+		{
+			print ADJ "\t0";
+		}
+
+		## do freq matrix of co-occurrence
+		for my $sam (@samples)
+		{
+			my $Usnptype = $GENO{$sam}{$zzz};
+			my $Dsnptype = $GENO{$sam}{$yyy};
+			
+			#debug
+#			print "JJ|$sam|$zzz|$yyy|\n";
+						
+			if(!exists($mat{$enzU}{$enzD}{"$Usnptype>$Dsnptype"}))
+			{
+				$mat{$enzU}{$enzD}{"$Usnptype>$Dsnptype"} = 1;
+			}
+			else
+			{
+				$mat{$enzU}{$enzD}{"$Usnptype>$Dsnptype"}++;
+			}
+			
+			# debug
+#			print "|$sam|$zzz|$yyy|$Usnptype>$Dsnptype\t".$mat{$enzU}{$enzD}{"$Usnptype>$Dsnptype"}."\n";
+		}
+	}
+	print ADJ "\n";
+}
+
+# print freq matrix
+foreach my $zzz (sort (keys %PROTJM))
+{
+	my @aaa = split(/\-/,$zzz,2);
+	my $enzU = $aaa[0];
+	print OUTPUT "$enzU";
+
+	foreach my $yyy (sort (keys %PROTJM))
+	{
+		my @bbb = split(/\-/,$yyy,2);
+		my $enzD = $bbb[0];
+		
+		## debug
+		#print $mat{$enzU}{$enzD}{'nshomo>n'}."\n";
+		
+		print OUTPUT "\t";
+		
+		if(exists($mat{$enzU}{$enzD}{"$uuu>n"}))
+		{
+			my $up2n = $mat{$enzU}{$enzD}{"$uuu>n"} / $numsamples;
+			print OUTPUT "$up2n";
+		}
+		else
+		{
+			print OUTPUT "NA";
+		}
+		
+		## do freq matrix of co-occurrence
+		foreach my $label ('s','nshomo','nshetero','pshomo','pshetero','rshomo','rshetero')
+		{
+			if(exists($mat{$enzU}{$enzD}{"$uuu>$label"}))
+			{
+				my $frq = $mat{$enzU}{$enzD}{"$uuu>$label"} / $numsamples;
+				print OUTPUT "|$frq";
+			}
+			else
+			{
+				print OUTPUT "|NA";
+			}
+		}
+	}
+	print OUTPUT "\n";
+}
+
+print "number of samples: $numsamples\n";
+close (ADJ);
+close (PATHWAY);
+close (GT);
+close (OUTPUT);

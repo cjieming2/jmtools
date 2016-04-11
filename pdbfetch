@@ -1,0 +1,2 @@
+## key in the pdb file name: eg. 1ELR.pdb -- 1ELR is not allowed
+wget http://www.rcsb.org/pdb/files/$1

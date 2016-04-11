@@ -1,0 +1,185 @@
+## requires copying to directory of use and renaming back to map.to.ref.bowtie.output.R
+
+##folder="/gpfs/scratch/fas/gerstein/jc2296/alleledb/allelicbias/personal_genome_snpsIndels_only_results/1-alignment1/2-map.back.ref"; setwd(folder)
+options(scipen=999)
+
+library("data.table")
+# has to be 1.8.9! 1.8.8 won't work. Please see:
+# http://stackoverflow.com/questions/16884613/fread-not-recognizing-a-bare-or-as-a-character-field
+library("GenomicRanges")
+
+
+args<-commandArgs(TRUE)
+if(length(args)==0){
+  print("No arguments supplied.")
+  ##supply default values
+  bowtie.chr.file = "test.1_maternal.bowtie.id"
+  map.file = "chr1_NA12878.map"
+  mapped.file = "test.1_maternal.mapped.bowtie.id"
+  matpat = "MAT"
+}else{
+  for(i in 1:length(args)){
+    eval(parse(text=args[[i]]))
+  }
+}
+
+bowtie.chr.file
+map.file
+mapped.file
+matpat
+
+
+
+map.mat.to.ref <- function(bowtie.chr.file = "1_maternal.bowtie", 
+							map.file = "chr1_NA12878.map", 
+							mapped.file = "1_maternal.mapped.bowtie")
+{
+	# bowtie.chr.file is the output from bowtie, for one specific chromosome, when reads were aligned to maternal genome.
+	# map.file is the file containing the ref/pat/mat blocks for the specific chromosome. AlleleSeq creates this file.
+	# mapped.file is the function's output, containing the reads in bowtie.chr.file and their location in the reference genome.
+
+	bowtie.chr.dt <- fread(bowtie.chr.file)
+	setnames(bowtie.chr.dt, old = c("V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8"), 
+							new = c("read.id", "strand", "chr", "pos", "read", "qual", "unk", "MM"))
+	cat(paste0(nrow(bowtie.chr.dt), " reads in this chromosome.\n"))
+
+	reads.GR <- GRanges(seqnames = bowtie.chr.dt$chr, 
+						ranges = IRanges(start = bowtie.chr.dt$pos,
+											end = bowtie.chr.dt$pos + nchar(bowtie.chr.dt$read)), 
+						strand = bowtie.chr.dt$strand,
+						read.id = bowtie.chr.dt$read.id)
+
+	map.dt <- fread(map.file)
+	setnames(map.dt, old = c("#REF", "PAT", "MAT"),
+						new = c("ref", "pat", "mat"))
+	
+	mat.block.starts <- map.dt$mat[map.dt$mat > 0]
+	ref.block.starts <- map.dt$ref[map.dt$mat > 0]
+	mat.block.ends <- rep(2*max(mat.block.starts), length(mat.block.starts))
+	mat.block.ends[1:length(mat.block.ends)-1] <- mat.block.starts[2:length(mat.block.starts)] - 1
+	# being lazy to find out what's the length of the mat chromosome,
+	# and knowing that GRanges doesn't take Inf well, I'm making the
+	# end of the last block to be a large number.
+	
+	blocks.GR <- GRanges(seqnames = bowtie.chr.dt[1, chr],
+							ranges = IRanges(start = mat.block.starts, end = mat.block.ends), 
+							strand = "*",
+							ref.block.starts = ref.block.starts)
+
+	ovl <- findOverlaps(query = reads.GR, 
+						subject = blocks.GR,
+         				type = "within",
+         				select = "first")
+	reads.mat.bl.start <- rep(0, length(reads.GR))
+	reads.mat.bl.start[!is.na(ovl)] <- start(blocks.GR[ovl[!is.na(ovl)]])
+	reads.ref.bl.start <- rep(0, length(reads.GR))
+	reads.ref.bl.start[!is.na(ovl)] <- values(blocks.GR[ovl[!is.na(ovl)]])$ref.block.starts
+
+	reads.dt <- data.table(read.id = values(reads.GR)$read.id,
+							mat.block.start = reads.mat.bl.start,
+							ref.block.start = reads.ref.bl.start,
+							mapped.pos = start(reads.GR) - reads.mat.bl.start + reads.ref.bl.start)
+	# we will get rid of the following reads:
+	# 1) Those that hit the junction of two maternal blocks (reads.mat.bl.start = 0).
+	# 2) Those that hit a maternal block that doesn't exist in the reference (reads.ref.bl.start = 0).
+	
+	reads.dt <- subset(reads.dt, mat.block.start > 0 & ref.block.start > 0)
+	setkey(reads.dt, read.id)
+
+	setkey(bowtie.chr.dt, read.id)
+	bowtie.chr.dt <- bowtie.chr.dt[reads.dt$read.id]
+
+	bowtie.chr.dt$pos <- reads.dt$mapped.pos
+
+	cat(paste0(nrow(bowtie.chr.dt), " reads were kept.\n"))
+
+	write.table(bowtie.chr.dt, 
+				file = mapped.file,
+				sep = "\t", 
+				quote = FALSE, 
+				row.names = FALSE,
+            	col.names = FALSE)
+	invisible()
+}
+
+map.pat.to.ref <- function(bowtie.chr.file = "1_paternal.bowtie", 
+							map.file = "chr1_NA12878.map", 
+							mapped.file = "1_paternal.mapped.bowtie")
+{
+	# bowtie.chr.file is the output from bowtie, for one specific chromosome, when reads were aligned to paternal genome.
+	# map.file is the file containing the ref/pat/mat blocks for the specific chromosome. AlleleSeq creates this file.
+	# mapped.file is the function's output, containing the reads in bowtie.chr.file and their location in the reference genome.
+
+	bowtie.chr.dt <- fread(bowtie.chr.file)
+	setnames(bowtie.chr.dt, old = c("V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8"), 
+							new = c("read.id", "strand", "chr", "pos", "read", "qual", "unk", "MM"))
+	cat(paste0(nrow(bowtie.chr.dt), " reads in this chromosome.\n"))
+
+	reads.GR <- GRanges(seqnames = bowtie.chr.dt$chr, 
+						ranges = IRanges(start = bowtie.chr.dt$pos,
+											end = bowtie.chr.dt$pos + nchar(bowtie.chr.dt$read)), 
+						strand = bowtie.chr.dt$strand,
+						read.id = bowtie.chr.dt$read.id)
+
+	map.dt <- fread(map.file)
+	setnames(map.dt, old = c("#REF", "PAT", "MAT"),
+						new = c("ref", "pat", "mat"))
+	
+	pat.block.starts <- map.dt$pat[map.dt$pat > 0]
+	ref.block.starts <- map.dt$ref[map.dt$pat > 0]
+	pat.block.ends <- rep(2*max(pat.block.starts), length(pat.block.starts))
+	pat.block.ends[1:length(pat.block.ends)-1] <- pat.block.starts[2:length(pat.block.starts)] - 1
+	# being lazy to find out what's the length of the pat chromosome,
+	# and knowing that GRanges doesn't take Inf well, I'm making the
+	# end of the last block to be a large number.
+	
+	blocks.GR <- GRanges(seqnames = bowtie.chr.dt[1, chr],
+							ranges = IRanges(start = pat.block.starts, end = pat.block.ends), 
+							strand = "*",
+							ref.block.starts = ref.block.starts)
+
+	ovl <- findOverlaps(query = reads.GR, 
+						subject = blocks.GR,
+         				type = "within",
+         				select = "first")
+	reads.pat.bl.start <- rep(0, length(reads.GR))
+	reads.pat.bl.start[!is.na(ovl)] <- start(blocks.GR[ovl[!is.na(ovl)]])
+	reads.ref.bl.start <- rep(0, length(reads.GR))
+	reads.ref.bl.start[!is.na(ovl)] <- values(blocks.GR[ovl[!is.na(ovl)]])$ref.block.starts
+
+	reads.dt <- data.table(read.id = values(reads.GR)$read.id,
+							pat.block.start = reads.pat.bl.start,
+							ref.block.start = reads.ref.bl.start,
+							mapped.pos = start(reads.GR) - reads.pat.bl.start + reads.ref.bl.start)
+	# we will get rid of the following reads:
+	# 1) Those that hit the junction of two paternal blocks (reads.pat.bl.start = 0).
+	# 2) Those that hit a paternal block that doesn't exist in the reference (reads.ref.bl.start = 0).
+	
+	reads.dt <- subset(reads.dt, pat.block.start > 0 & ref.block.start > 0)
+	setkey(reads.dt, read.id)
+
+	setkey(bowtie.chr.dt, read.id)
+	bowtie.chr.dt <- bowtie.chr.dt[reads.dt$read.id]
+
+	bowtie.chr.dt$pos <- reads.dt$mapped.pos
+
+	cat(paste0(nrow(bowtie.chr.dt), " reads were kept.\n"))
+
+	write.table(bowtie.chr.dt, 
+				file = mapped.file,
+				sep = "\t", 
+				quote = FALSE, 
+				row.names = FALSE,
+            	col.names = FALSE)
+	invisible()
+}
+
+###############################################
+## main
+###############################################
+
+if(matpat == "MAT"){
+        map.mat.to.ref(bowtie.chr.file,map.file,mapped.file)
+}else{
+        map.pat.to.ref(bowtie.chr.file,map.file,mapped.file)
+}

@@ -1,0 +1,304 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+use POSIX qw(ceil floor);
+
+=head1 NAME
+
+fsampling
+
+=head1 SYNOPSIS
+
+ fsampling [options] <tsv-file>
+
+  <tsv-file> tab-delimited file with columns of data with header. First column contains the labels to be left out.
+  
+  --jk option jackknife
+  Calculates the leave-one-out (LOO) mean of the columns. (can be modified to include other functions)
+  Please note that non-numerical data are treated as 0; '-1' is treated as a negative numeric.
+  
+  --bs option bootstrap
+  
+  -i number of bootstrap samplings (default=1000) and number of rows to leave out in every sampling.
+  
+  Example:
+     fsampling geno.txt --jk
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $columns = 'jm';
+my $boot = 1000;
+my $jackknife = 0;
+my $bootstrap = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'c=s'=>\$columns, 'i=i'=>\$boot, 'jk'=>\$jackknife, 'bs'=>\$bootstrap) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+if(scalar(@ARGV)==0)
+{
+	*INPUT = *STDIN;
+}
+else
+{
+	open(INPUT, $ARGV[0]) || die "Cannot open $ARGV[0]";
+}
+
+## parsing the column number
+#if($columns =~ m/(\d|,|-)/)
+#{
+#	my @col;
+#	my @commacol = split("\,",$columns);
+#	foreach my $i(@commacol)
+#	{
+#		push(@col, split("\-",$i));
+#	}
+#	
+##	print join("|",@col); ##debug
+##	print "\n"; ##debug
+#}
+
+my $colNo;
+my $rowNo = 0;
+my @DATA; ## input data
+
+if($jackknife)
+{
+	my $ofile = "jackknifed-$ARGV[0]";
+	open(OUTPUT, ">$ofile") || die "Cannot open $ofile:$!";
+	
+	while (<INPUT>)
+	{
+		s/\r?\n?$//;
+		
+		my $numcol = s/\t/\t/g + 1;
+		if($numcol == 1)
+		{
+			unlink $ofile;
+			die "First column is required as labels!";
+		}
+		
+		if($.==1)
+		{
+			$colNo = s/\t/\t/g + 1;
+			my @header = split("\t", $_, $colNo);
+			
+			print OUTPUT "without";
+			for(my $i=1;$i<@header;$i++)
+			{
+				print OUTPUT "\t$header[$i]";
+			}
+			print OUTPUT "\n";
+		}
+		else
+		{
+			my @fields = split("\t", $_, $colNo);
+			push(@DATA, [ @fields ]); ## pushing into 2D array
+			$rowNo++;
+		}
+	}
+	
+	
+	for (my $j=0;$j<$rowNo;$j++) ## first row of @DATA is the data; header is in @header
+	{			
+		print OUTPUT "$DATA[$j][0]"; ## first col 0 is labels
+		
+		for (my $i=1;$i<$colNo;$i++) 
+		{
+			my $jtotal = 0;
+			my $jmean = 0;
+			
+			for (my $k=0;$k<$rowNo;$k++)
+			{
+				if($k == $j)
+				{
+					next;
+				}
+				else
+				{
+					$jtotal += $DATA[$k][$i];
+				}
+			} ## iterate if not equals to that row that we are leaving out
+			
+			$jmean = $jtotal/($rowNo - 1);
+			
+			print OUTPUT "\t$jmean";
+			
+		} ## iterate the columns
+		
+		print OUTPUT "\n";
+		
+	}	## iterate through the row labels that we are leaving out
+	
+	close(INPUT);
+	close(OUTPUT);
+}
+elsif($bootstrap)
+{
+	my @boot2randnum;
+	#my @randnum;
+	
+	my $ofile = "bootstrapped-$ARGV[0]";
+	open(OUTPUT, ">$ofile") || die "Cannot open $ofile:$!";
+	
+	while (<INPUT>)
+	{
+		s/\r?\n?$//;
+				
+		if($.==1)
+		{
+			$colNo = s/\t/\t/g + 1;
+			my @header = split("\t", $_, $colNo);
+			
+			print OUTPUT "boot-sample";
+			
+			for(my $i=1;$i<@header;$i++)
+			{
+				print OUTPUT "\t$header[$i]";
+			}
+			print OUTPUT "\n";
+		}
+		else
+		{
+			my @fields = split("\t", $_, $colNo);
+			push(@DATA, [ @fields ]); ## pushing into 2D array
+			$rowNo++;
+		}
+	}
+	
+	if($rowNo <= $boot)
+	{
+		die "Number of bootstrap iterations > number of rows";
+	}
+	
+	srand (time ^ $$ ^ unpack "%L*", `ps axww | gzip`);
+	#srand(1); ##debug
+	
+	my $max = $rowNo - 1;
+	
+	## randomize $boot samples
+	for (my $jm=0;$jm<$boot;$jm++)
+	{
+		my $flag =1;
+		my @randnum = ();
+		
+		## randomize $boot number of numbers
+		for (my $i=0;$i<$boot;$i++)
+		{
+			my $num = int(rand($max)) + 1;
+			my $ctr = 0;
+
+			
+			if($flag)
+			{
+				#print "$num\n"; #debug
+				push(@randnum, $num);
+				$flag = 0;
+				next;
+			}
+			
+			for (my $j=0;$j<@randnum;$j++)
+			{			
+				if(($num != $randnum[$j]) && ($j == $#randnum))
+				{
+					#print "$num\.$randnum[$j]|$j\.$#randnum\n"; #debug
+					push(@randnum, $num);
+					last;
+				}
+				elsif($num == $randnum[$j])
+				{
+					$num = int(rand($max)) + 1;
+					push(@randnum, $num);
+					last;
+				}
+			} ## storing random numbers	
+			
+		} ## randomise $boot number of numbers
+		
+		@randnum = sort {$a <=> $b} @randnum; # numeric sort
+		#print "$jm|".join(".", @randnum); ##debug
+		#print "\n"; ##debug
+		
+		push(@boot2randnum, [ @randnum ]);
+		
+#		print "$jm||"; ##debug
+#		for(my $d=0;$d<$boot;$d++)
+#		{
+#			print "$boot2randnum[$jm][$d]\."; ##debug
+#		}
+#		print "\n"; ##debug
+		
+	} ## randomise $boot replicates of $boot random numbers
+	
+
+	
+	
+	## bootstrapping
+	for (my $k=0;$k<$boot;$k++)
+	{		
+		#print OUTPUT "$DATA[$j][0]"; ## first col 0 is labels
+		my $trial = $k+1;
+		print OUTPUT "$trial";
+		
+		for (my $j=1;$j<$colNo;$j++) ## first row of @DATA is the data; header is in @header
+		{				
+			my $btotal = 0;
+			my $bmean = 0;		
+			
+			ROW:for (my $i=0;$i<$rowNo;$i++) 
+			{										
+				for (my $inrandarray=0;$inrandarray<$boot;$inrandarray++)
+				{
+					if($boot2randnum[$k][$inrandarray] == ($i + 1)) ## if the random number equals to current row number
+					{
+						next ROW;
+					}
+					else
+					{
+						next;
+					}
+				} ## iterate if not equals to that row that we are leaving out				
+				
+				$btotal += $DATA[$i][$j];
+				#print "$k|$j|$i|$DATA[$i][$j]|$btotal\n"; #debug
+				
+			} ## iterate the rows
+			
+			
+			$bmean = $btotal/($rowNo - $boot);
+				
+			print OUTPUT "\t$bmean";
+			
+		}	## iterate through the columns
+		print OUTPUT "\n";
+	}
+	
+	close(INPUT);
+	close(OUTPUT);
+	
+}
+else
+{
+	die "Please choose jackknife or bootstrap option!";
+}
+

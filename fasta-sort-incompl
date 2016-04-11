@@ -1,0 +1,154 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+fasta-sort
+
+=head1 SYNOPSIS
+
+ fasta-sort [options] <fastafile|referencefile>
+
+  -h help
+  -c chromosome column
+  -p start position column
+  -o output filename
+  
+  This script basically searches for '>' as headers and a stipulated column for the chromosome and start position of the sequence and sorts the header according to chr and pos.
+  The header has to be space delimited. 
+  An example of a header:
+  >391humanref-chimp-blat-humanref 1203 chrY 31 48 -
+	
+  Example:
+     fasta-sort -o sorted-jm -c 3 -p 4 contigs.txt 
+     
+  Default outputs: new-<filename>.fa
+  Output will be concatenated with .fa extension.
+       
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $chr = 0;
+my $position = 0;
+my $outputname = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'o=s'=>\$outputname, 'c=i'=>\$chr, 'p=i'=>\$position) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## FASTA file
+my $fafile = $ARGV[0];
+open(FA, $fafile) || die "Cannot open $fafile";
+
+## output file
+my($name, $path, $ext) = fileparse($fafile, '\..*');
+my $ofile = '';
+
+if($outputname eq 0)
+{
+	$ofile = "new-$name.fa";
+}
+else
+{
+	$ofile = "$outputname.fa";
+}
+
+open(OUTPUT, ">$ofile") || die "Cannot open $ofile";
+
+## fasta global variables
+my %sequence=();
+my $flag = 0;
+my @newseq=();
+my $head; ## header
+my $startpos = 0;
+my $chr = '';
+
+######################################FASTA############
+## read FASTA file to obtain sequence
+ITER:while(<FA>)
+{
+	chomp $_;
+	my @line = split(//,$_);
+	
+	if(($line[0] =~ m/^(>)/) && ($flag==0))
+	{
+		my @field = split(/ /,$_);
+		$startpos = $field[3];
+		$chr = $field[2];
+		$flag = 1;
+		next ITER;
+	}
+	elsif(($line[0] ne ">") && ($flag==0))
+	{
+		die "FASTA file does not have title that starts with '>'!:$!";
+	}
+	else
+	{
+		
+		push(@{$sequence{$chr}{$startpos}},@line)
+	}
+}## end of one line of fa file
+close(FA);
+
+###############################################################
+## sort ## sort the keys
+
+
+#################################--string######################
+if($string)
+{
+	print OUTPUT "\>$head\n";
+	printout(*OUTPUT, @sequence);
+	
+	close(OUTPUT);
+	
+	exit;
+}
+
+
+## print to fasta format; 60 characters per line (0-59)
+## print output fasta header
+print OUTPUT "\>$ofile\n";
+printout(*OUTPUT, @newseq);
+print OUTPUT "\n";
+
+close(OUTPUT);
+
+################################################################
+## printing
+sub printout
+{
+	my($OUTPUT, @seqtoprint) = (shift, @_[0..$#_]);
+	
+	for(my $i=0;$i<@seqtoprint;$i++)
+	{	
+		if(($i == 0) || (($i % 60)!=0)) ## if $i is not divisible by 60 keep printing
+		{
+			print $OUTPUT "$seqtoprint[$i]";
+		}
+		else ## if it is divisible by 60
+		{
+			print $OUTPUT "\n$seqtoprint[$i]";
+		}
+	}
+}

@@ -1,0 +1,44 @@
+## USAGE: allelicbias-check-cmp-outputs <newpost-read removal path and file> <bias-removal-by-sites/allelicbias-by-sites-affected.mt0.05.bed> <name for $1> <name for $2>
+# e.g. allelicbias-check-cmp-outputs ../interestingHets.betabinom.min6.auto.bed ../bias-removal-by-sites/allelicbias-by-sites-affected.mt0.05.bed new-postreadremoval sites-NOT-removed
+
+
+intersectBed -a $1 -b $2 > SNVs-$4-from-$3.bed
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## allelicbias-check-cmp-outputs <original alleleseq path> <cmp against path> <name for $1> <name for $2> <filename for $1> <filename for $2>
+## e.g. allelicbias-check-cmp-by-reads original-alleleseq . original biasfiltered interestingHets.betabinom.min6.auto.bed interestingHets.betabinom.min6.auto.bed 
+## requires intersectBed, outputs BED but inputs TXT alleleseq output
+## note that this script does NOT remove sex chr
+
+## prints common
+#intersectBed -a $1/$5 -b $2/$6 -wa -wb > zcmp-$3-$4-common.bed
+
+## print $1-only - first part without evidence from counts.txt $2 and second part with evidence from $2
+#intersectBed -a $1/$5 -b $2/$6 -wa -v | intersectBed -a - -b <(awk '{OFS="\t"}{FS="\t"}{print "chr"$1,$2-1,$2,$10,$11,$12,$13,$19}' $2/counts.betabinom.txt | sed 1d ) -wa -v > zcmp-$3-only-outjoin-$4-removed.bed
+
+#intersectBed -a $1/$5 -b $2/$6 -wa -v | intersectBed -a - -b <(awk '{OFS="\t"}{FS="\t"}{print "chr"$1,$2-1,$2,$10,$11,$12,$13,$19}' $2/counts.betabinom.txt | sed 1d ) -wa -wb >> zcmp-$3-only-outjoin-$4-removed.bed
+
+
+
+## print $2-only - first part without evidence from counts.txt $1 and second part with evidence from $1
+#intersectBed -b $1/$5 -a $2/$6 -wa -v | intersectBed -a - -b <(awk '{OFS="\t"}{FS="\t"}{print "chr"$1,$2-1,$2,$10,$11,$12,$13,$16}' $1/counts.txt | sed 1d ) -wa -v > zcmp-$4-only-outjoin-$3-newones.bed
+
+#intersectBed -b $1/$5 -a $2/$6 -wa -v | intersectBed -a - -b <(awk '{OFS="\t"}{FS="\t"}{print "chr"$1,$2-1,$2,$10,$11,$12,$13,$16}' $1/counts.txt | sed 1d ) -wa -wb >> zcmp-$4-only-outjoin-$3-newones.bed
+
+

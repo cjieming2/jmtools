@@ -1,0 +1,198 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+impute2helixTree
+
+=head1 SYNOPSIS
+
+ impute2helixTree [options] <impute-file>	
+
+  -h help
+  -o base file name for the output files
+  -c chromosome, assuming that the entire input file comes from a single chromosome.
+  -t call threshold, default 0.9. The threshold below which the genotype would be missing.
+     Note that if there is no threshold, please set to 0.
+  
+  <impute-file> 
+  IMPUTE format
+  col1: snp-id or ---
+  col2: rs-id
+  col3: position
+  col4: allele A
+  col5: allele B
+  col6 onwards: 
+  each genotype is represented by THREE probabilities, in which the highest probability marks the most probable genotype 'guess'ed by IMPUTE.
+  This script takes that and translate to helixTree dsf format.                
+                
+  This script outputs two files: 
+  1) .dsf file, helixTree file
+  - note that there is no sample column. Please use 'paste' to put sample names to first column.
+  2) .snpinfo file, containing SNP snp-id, position and alleles.
+  3) .log file, containing 
+  
+  Example:
+     impute2helixTree -o chr9-imputed -c 9 -t 0.9 info-all-chr9.imp 
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $outputbase = '';
+my $chromosome;
+my $threshold = 0.9;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'o=s'=>\$outputbase, 'c=i'=>\$chromosome, 't=s'=>\$threshold) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## exception
+if($threshold < 0 || $threshold > 1)
+{
+	die "Please set a call threshold in the range [0,1]!";
+}
+
+## input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+my $dsffile = "$outputbase.dsf";
+my $snpfile = "$outputbase.snpinfo";
+my $logfile = "$outputbase-impute2helixTree.log";
+open (DSF, ">$dsffile") || die "Cannot open $dsffile: $!";
+open (SNP, ">$snpfile") || die "Cannot open $snpfile: $!";
+open (LOGF, ">$logfile") || die "Cannot open $logfile: $!";
+
+print LOGF "Output DSF file: $dsffile\n".
+					 "Output SNP file: $snpfile\n".
+					 "Call threshold: $threshold\n";
+
+## print to SNPINFO file header
+print SNP "snp-id\tchromosome\tposition\talleles\n";
+		
+## variables
+my @snplist;
+#my @samplelist;
+my %genotypes;
+my $samplectr = 0;
+
+## open IMPUTE file
+while(<INPUT>)
+{
+	chomp $_;
+	my @fields = split(/ /, $_);
+	chomp @fields;
+	
+	$samplectr = 0;
+	
+	my $snpid = $fields[1];
+	my $position = $fields[2];
+	my $alleleA = $fields[3];
+	my $alleleB = $fields[4];
+	
+	push(@snplist, $snpid);
+	
+	## print to SNPINFO file
+	print SNP "$snpid\t$chromosome\t$position\t$alleleA\/$alleleB\n";
+		
+	for(my $i=5;$i<=$#fields;$i++)
+	{
+		# comparing the 3 genotype scores
+		my $geno1 = $fields[$i];
+		my $geno2 = $fields[++$i];
+		my $geno3 = $fields[++$i];		
+		my $genotype;
+		
+		if($geno1 > $geno2 && $geno1 > $geno3)
+		{
+			$genotype = ($geno1 >= $threshold) ? "$alleleA\_$alleleA" : "\?\_\?";
+		}
+		elsif($geno2 > $geno1 && $geno2 > $geno3)
+		{
+			if($alleleB eq 'T' && $alleleA ne 'A')
+			{
+				$genotype = ($geno2 >= $threshold) ? "$alleleB\_$alleleA" : "\?\_\?";
+			}
+			else
+			{
+				$genotype = ($geno2 >= $threshold) ? "$alleleA\_$alleleB" : "\?\_\?";
+			}
+		}
+		elsif($geno3 > $geno2 && $geno3 > $geno1)
+		{
+			$genotype = ($geno3 >= $threshold) ? "$alleleB\_$alleleB" : "\?\_\?";
+		}
+		elsif(($geno1 == 0) && ($geno2 == 0) && ($geno3 == 0))
+		{
+			$genotype = "\?\_\?";
+		}
+		else
+		{
+			my $j = $i + 1;
+			print LOGF "$snpid: spurious genotype probabilities: $j th column: $geno1 $geno2 $geno3: output \?\_\?!\n";
+			$genotype = "\?\_\?";
+		}
+		
+		$genotypes{++$samplectr}{$snpid} = $genotype;
+		
+		#print "|$i|\t|$geno1|\t|$geno2|\t|$geno3|\t|$genotype|\n"; #debug
+		
+	} # each triplet of genotype scores
+	
+} # new SNP each line
+close(INPUT);
+
+## print to output DSF header
+print DSF join("\t",@snplist)."\n";
+
+my $snpsNum = $#snplist + 1;
+print "Number of SNPs = $snpsNum\n";
+print "Number of samples = $samplectr\n";
+
+for (my $i=1;$i<=$samplectr;$i++)
+{
+	my $firstsnpflag = 1;
+	for my $snp (@snplist)
+	{
+		if($firstsnpflag)
+		{
+			#print "$i\t$snp\n"; #debug
+			print DSF "$genotypes{$i}{$snp}";
+			$firstsnpflag = 0;
+		}
+		else
+		{
+			#print "$i\t$snp\n"; #debug
+			print DSF "\t$genotypes{$i}{$snp}";
+		}
+	} # snp loop
+	print DSF "\n";
+}
+
+
+close(DSF);
+close(SNP);
+close(LOGF);
+	

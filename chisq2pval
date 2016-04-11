@@ -1,0 +1,363 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+chisq2pval
+
+=head1 SYNOPSIS
+
+ chisq2pval [options]	<tsvfile>
+
+  -h help
+  -c column(s)
+  -d degree of freedom, default is 1 (required)
+  tsvfile tab-delimited file with header
+ 	
+ 	-v alternatively a single value can be queried; output will be onscreen
+ 		 requires the -d option else default is 1
+ 		 requires also the word "chisqval"
+  
+  Example:
+  	chisq2pval -c 1,3 geno.tsv
+  	chisq2pval -v 0.07982 chisqval
+    
+    Outputs the original file plus extra columns appending "-p<column-number>" to the original header name
+    There is a cap on the chisquare value of 36, beyond which the script will output zero.
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $col = 0;
+my $tsvFile;
+my $df = 1;
+my $value = -1;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'd=i'=>\$df, 'c=s'=>\$col, 'v=s'=>\$value) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+
+if ($value != -1)
+{
+	## chisq input
+	#my $chisq = 3.84;
+	my $pval = chisq2p($value,$df);
+	printf "p-value for chisq value $value is: $pval\n";
+	exit;
+}
+
+## column flag
+my $cflag;
+chomp $col;
+ 
+## column parsing
+## one value of c
+if($col =~ m/^\d+$/)
+{
+	$cflag = "single";
+}
+## if k is 0
+elsif ($col eq 0)
+{
+	die "Lack of parameter c:$!";
+}
+else # k is not a single value
+{
+	## k is a range, hypenated
+	if ($col =~ m/\d+(-)\d+/)
+	{
+		$cflag = "hyphen";
+	}
+	## single numbers comma-delimited
+	elsif($col =~ m/\d+(,)\d+/) 
+	{
+		$cflag = "comma";
+	}
+	else
+	{
+		die "$col is not a valid parameter format!!";
+	}
+}
+
+## input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+my $ofile = "$ifile.chi2p";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+## variables
+my $headerProcessed = 0;
+my $colno = 0;
+my $maxi = 0;
+
+LINE: while(<INPUT>)
+{
+	$colno = s/\t/\t/g + 1;
+	
+	chomp $_;
+	print OUTPUT "$_";
+	my @fields = split(/\t/,$_);
+	chomp @fields;
+	
+	## header not processed
+	if(!$headerProcessed)
+	{		
+		if($cflag eq "single")
+		{
+			if ($col > $colno)
+			{
+				close (OUTPUT);
+				unlink($ofile);
+				die "There are lesser number of columns than the one stated in parameter c!!";
+			}
+			
+			my $column = $col - 1;
+			print OUTPUT "\t$fields[$column]\-p$col";
+		}
+		elsif($cflag eq "hyphen")
+		{
+			my @columns = split("-",$col);
+			if ($columns[1] > $colno)
+			{
+				close (OUTPUT);
+				unlink($ofile);
+				die "There are lesser number of columns than the one stated in parameter c!!";
+			}
+			
+			foreach my $column ($columns[0]..$columns[1])
+			{				
+				$column = $column - 1;
+				printf OUTPUT "\t$fields[$column]\-p%d", $column+1;
+			}
+		}
+		elsif($cflag eq "comma")
+		{
+			my @columns = split(",",$col);
+			chomp @columns;
+			for (my $i=0; $i<@columns;$i++)
+			{
+				if($maxi < $columns[$i])
+				{
+					$maxi = $columns[$i];
+				}
+			}
+			
+			if ($maxi > $colno)
+			{
+				close (OUTPUT);
+				unlink($ofile);
+				die "There are lesser number of columns than the one stated in parameter c!!";
+			}
+			
+			foreach my $column (@columns)
+			{
+				$column = $column - 1;
+				printf OUTPUT "\t$fields[$column]\-p%d", $column+1;
+			}
+		}
+		
+		print OUTPUT "\n";
+		$headerProcessed = 1;
+		next LINE;
+	}
+	else ## header processed
+	{
+		if($cflag eq "single")
+		{
+			my $column = $col - 1;
+			my $pval = chisq2p($fields[$column],$df);
+			printf OUTPUT "\t$pval";
+		}
+		elsif($cflag eq "hyphen")
+		{
+			my @columns = split("-", $col);
+			
+			foreach my $column ($columns[0]..$columns[1])
+			{
+				$column = $column - 1;
+				my $pval = chisq2p($fields[$column],$df);
+				printf OUTPUT "\t$pval";
+			}
+		}
+		elsif($cflag eq "comma")
+		{
+			my @columns = split("," , $col);
+		  chomp @columns;
+			
+			foreach my $column (@columns)
+			{
+				$column = $column - 1;
+				my $pval = chisq2p($fields[$column],$df);
+				printf OUTPUT "\t$pval";
+			}
+		}
+	}
+	print OUTPUT "\n";
+}
+
+close(INPUT);
+close(OUTPUT);
+##############################################################################################################################
+## probz() -- probability of normal z value
+## adapted from polynomial approx Ibbetson D, Algorithm 209 Collected Algorithms of the CACM 1963 p. 616
+## 6-digit accuracy useful for abs z values < 6
+## for z>= 6 probz() returns 0.0
+
+sub probz
+{
+	my $z = shift;
+	my ($y, $x, $w) = (0,0,0);
+	my $Z_MAX = 6.0;
+	
+	if ($z == 0)
+	{
+		$x = 0;
+	}
+	else
+	{
+		$y = 0.5 * abs($z);
+		
+		if($y >= ($Z_MAX * 0.5))
+		{
+			$x = 1.0;
+		}
+		elsif ($y < 1.0)
+		{
+			$w = $y * $y;
+			$x = ((((((((0.000124818987 * $w
+								- 0.001075204047) * $w + 0.005198775019) * $w
+								- 0.019198292004) * $w + 0.059054035642) * $w
+								- 0.151968751364) * $w + 0.319152932694) * $w
+								- 0.531923007300) * $w + 0.797884560593) * $y * 2.0;
+		}
+		else
+		{
+			$y -= 2.0;
+			$x = (((((((((((((-0.000045255659 * $y
+					+ 0.000152529290) * $y - 0.000019538132) * $y
+					- 0.000676904986) * $y + 0.001390604284) * $y
+					- 0.000794620820) * $y - 0.002034254874) * $y
+					+ 0.006549791214) * $y - 0.010557625006) * $y
+					+ 0.011630447319) * $y - 0.009279453341) * $y
+					+ 0.005353579108) * $y - 0.002141268741) * $y
+					+ 0.000535310849) * $y + 0.999936657524;
+		}
+	}
+	
+	return ($z > 0.0) ? (($x + 1.0) * 0.5) : ((1.0 - $x) * 0.5);
+
+}
+
+#######################################################
+## max value to represent exp(x)
+
+sub ex
+{
+	my $x = shift;
+	my $BIGX = 20.0;
+	return ($x < -$BIGX) ? 0.0 : exp($x);
+}
+
+#######################################################
+## chisq2p -- probability of chi-sq value (CDF)
+## lowergamma(1/2,x/2)/gamma(1/2) where gamma(1/2)=SQRT(PI)
+## returns pval for df > 1
+## if df == 1 check probz
+
+sub chisq2p
+{
+	my ($chisq, $df) = (shift, shift);
+	my ($a, $pseudoP, $pval, $e, $c, $z)= (0,0,0,0,0,0);
+	my $BIGX = 1000000; ## max limit for chisq is twice of this 
+	my $dfeven = 0;
+	
+	## ln(sqrt(pi))
+	my $LN_SQRT_PI = 0.5723649429247000870717; 
+	
+	## 1/sqrt(pi)
+	my $INVERSE_SQRT_PI = 0.5641895835477562869481;
+	
+	## imagine the chisq probability function
+	## starts from 0 onwards --> area under graph is always 1
+	## by definition also, df cannot be less than 1
+	if ($chisq <= 0.0 || $df < 1)
+	{
+		return 1.0;
+	}
+	
+	$a = 0.5 * $chisq;
+	
+	## bit operator &
+	## generates a results of 1 if both df and 1 are 1
+	## else it returns 0
+	## so it sees if df=1 or more
+	$dfeven = !($df & 1);
+	
+	if($df > 1)
+	{
+		my $aa = $a * -1;
+		$pseudoP = ex($aa);
+	}
+	$pval = ($dfeven ? $pseudoP : (2.0 * probz(-sqrt($chisq))));
+	
+	if($df > 2)
+	{
+		$chisq = 0.5 * ($df - 1.0);
+		$z = ($dfeven ? 1.0 : 0.5);
+		
+		if($a > $BIGX)
+		{
+			$e = ($dfeven ? 0.0 : $LN_SQRT_PI);
+			$c = log($a);
+			
+			while ($z < $chisq)
+			{
+				$e = log($z) + $e;
+				my $jm = $c * $z - $a - $e;
+				$pval += ex($jm);
+				$z += 1.0;
+			}
+			return $pval;
+		}
+		else
+		{
+			$e = ($dfeven ? 1.0 : ($INVERSE_SQRT_PI/sqrt($a)));
+			$c = 0.0;
+			
+			while ($z <= $chisq)
+			{
+				$e = $e * ($a/$z);
+				$c = $c + $e;
+				$z += 1.0;
+			}
+			return $c * $pseudoP + $pval;
+		}
+	}
+	else
+	{
+		return $pval;
+	}
+}

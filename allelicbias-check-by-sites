@@ -1,0 +1,10 @@
+## USAGE: allelicbias-check-by-sites <BED file>
+## allelicbias-check-by-sites interestingHets.betabinom.min6.auto.bed originalmatreads.intersect.bed originalpatreads.intersect.bed
+## make sure you have intersectBed, sortByChr.sh, calcAllelicBias, interestingHets.betabinom.min6.auto.bed
+
+cat \
+<(intersectBed -a $1 -b $2 -wa -wb | sortByChr.sh - | uniq | alleledb_calcAllelicBias -m 1 - | sortByChr.sh - ) \
+<(intersectBed -a $1 -b $3 -wa -wb | sortByChr.sh - | uniq | alleledb_calcAllelicBias -m 1 - | sortByChr.sh - ) \
+ | sortByChr.sh - | uniq > allelicbias-by-sites-affected.bed
+
+awk '{OFS="\t"}{FS="\t"}{if($12 >= 0.05){print $0}}' allelicbias-by-sites-affected.bed | cut -f1-3 | sortByChr.sh - | uniq > allelicbias-by-sites-affected.mt0.05.bed

@@ -1,0 +1,109 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+pdbsplit
+
+=head1 SYNOPSIS
+
+ pdbsplit [options] <>	
+
+  -h help
+  
+  This script takes a PDB file and splits the ATOM information into its various chains (COMPND info).
+  If there is only one chain, it extracts out the ATOM info of that chain without the other data (e.g. no HETATOM).
+                
+ 
+  Example:
+     pdbsplit 1AXI.pdb
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output filename
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+
+# variables
+my %chain2lines;
+my %chains;
+	
+# read input file
+while (<INPUT>)
+{
+	chomp $_;
+	s/\r?\n?$//;
+	
+	## look for ATOM
+	if($_ =~ m/^(ATOM|HETATM|TER)/)
+	{
+		#my $newline = $_;
+		#$newline =~ s/\s+/\t/g; # substitute all spaces with a tab
+		#my @fields = split("", $newline);
+		#my $chainname = substr($_,21,1); ##debug
+		#my $chainnum = substr($_,6,5); ##debug
+		#print "$chainname||$chainnum\n"; ##debug
+		$chains{substr($_,21,1)} = 1;
+		
+		$chain2lines{substr($_,21,1)}{substr($_,6,5)} = $_;
+	}
+	elsif($_ =~ m/^TER/)
+	{
+		my $terline = $_;
+		$terline =~ s/\s+/\t/g; # substitute all spaces with a tab
+		
+		my @fields = split("\t", $terline, 6);
+		$chains{substr($_,21,1)} = 1;
+		
+		$chain2lines{substr($_,21,1)}{substr($_,6,5)} = $_;
+	}
+}
+
+for my $chain (sort keys %chains)
+{
+	# create and open file
+	my $ofile = "$name\_chain$chain.pdb";
+	open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+	
+	# print to file
+	for my $atomNum (sort {$a <=> $b} keys %{ $chain2lines{$chain} })
+	{
+		print OUTPUT "$chain2lines{$chain}{$atomNum}\n";
+	}
+	
+	
+	close (OUTPUT);
+}
+
+close(INPUT);
+	

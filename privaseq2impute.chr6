@@ -1,0 +1,142 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+privaseq2impute
+
+=head1 SYNOPSIS
+
+  privaseq2impute [options] .beddat
+
+  -h help
+  
+  <.beddat>
+  - combines BED and DAT file from Privaseq
+  - contains SNP positions (1st 6 col are from BED file)
+  - note that this script assumes that there is 'chr' in the BED file chr positions
+  - 4th col = ID (snp_10_23123 or rsid)
+  - 5th col = ref
+  - 6th col = alt
+  - 7th col onwards are information on dat file
+    a matrix with a pair of genotypes separated by tabs; for each pair, first genotype is predicted and the second is actual (from 1KG)
+    genotypes are 0,1,2 and -1 is missing
+    rows as SNPs and cols as samples
+  
+  this script splits the dat file into the chromosomes, based on information from the BED file and produces the IMPUTE genotype file
+  for each chromosome
+  
+  OUTPUT, space-delimited:
+  SNP1 rs1 1000 A C 1 0 0 1 0 0
+  col1=snpid
+  col2=rsid
+  col3=snp pos (1-based)
+  col4=ref allele
+  col5=alt allele
+  col6-col8 = probabilities of AA AB BB for indiv 1
+  col9-col11 = probabilities of AA AB BB for indiv 2 etc.
+  
+  Example:
+     privaseq2impute pred.beddat
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $bedfile = '';
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+##### input file
+my $datfile = $ARGV[0];
+open (INPUT, $datfile) || die "Cannot open $datfile: $!";
+
+## variables
+my $samplectr = 0;
+my $snpctr = 0;
+my @IMPUTEGEN; # each entry is the snp/row in order
+my $numcolBed = 6;
+
+while(<INPUT>)
+{
+	chomp $_;
+	my @fields = split("\t",$_);
+	chomp @fields;
+	
+	$samplectr = s/\t/\t/g + 1 - $numcolBed;
+	
+	my $chr = $fields[0];
+	my $pos = $fields[2];
+	my $sid = $fields[3];
+	my $ref = $fields[4];
+	my $alt = $fields[5];
+	
+	next if $chr ne "chr6";
+	
+	## create marker file if not exist, otherwise append
+	my $newbedfile = "$chr.$datfile.imputeg";
+	
+	if(-e "./$newbedfile")
+	{ 
+  	open (NEWBED, ">>$newbedfile") || die "Cannot open $newbedfile: $!";
+	}
+	else
+	{
+		open (NEWBED, ">$newbedfile") || die "Cannot open $newbedfile: $!";
+	}
+	
+	## print SNP1 rs1 10000
+	print NEWBED "SNP$snpctr $sid $pos $ref $alt";
+	
+	## print individual genotypes in IMPUTE format
+	for (my $i=$numcolBed;$i<@fields;$i++)
+	{
+		my @gg = split(" ",$fields[$i]);
+		
+		# convert field 0,1,2 to 3 probabilities where 0=1 0 0, 1=0 1 0, 2=0 0 1, -1=0 0 0
+		if($gg[0] == 0)
+		{
+			print NEWBED ' 1 0 0';
+		}
+		elsif($gg[0] == 1)
+		{
+			print NEWBED ' 0 1 0';
+		}
+		elsif($gg[0] == 2)
+		{
+			print NEWBED ' 0 0 1';
+		}
+		else ## -1
+		{
+			print NEWBED ' 0 0 0';
+		}
+	}
+	
+	print NEWBED "\n";
+	close(NEWBED);
+		
+	$snpctr++;
+} # each row of input file
+close(INPUT);
+

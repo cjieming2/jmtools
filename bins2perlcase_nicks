@@ -1,0 +1,154 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+use Cwd;
+
+=head1 NAME
+
+naccess2csa
+
+=head1 SYNOPSIS
+
+ bins2perlcase [options] <>	
+
+  -h help
+  
+  INPUT: Nicks BINS project file, 
+  EACH LINE = 
+  3-letter abbreviation for amino acid
+  :list of aliphatic atoms 				(ali)
+	:list of aromatic atoms 				(aro)
+	:list of polar uncharged atoms	(pol)
+	:list of polar charged atoms		(chg)
+	:
+  
+  OUTPUT: EXAMPLE
+  	case "TYR"
+		{
+			switch($atomtype)
+			{
+				case "CG"       { return "aro"; }
+				case "CD1"      { return "aro"; }
+				case "CD2"      { return "aro"; }
+				case "CE1"      { return "aro"; }
+				case "CE2"      { return "aro"; }
+				case "CZ"       { return "aro"; }
+				case "OH"       { return "pol"; }
+				else { print "$aatype|$atomtype unknown\n"; return "unknown" ; }
+			}
+		}
+                
+  Example:
+     bins2perlcase BINSatoms-jmedited.txt
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input list
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+my $ofile = "bins2perlcase-$name.txt";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+# variables
+my $asa = 0;
+my %chain2csa;
+my $notfirstlineflag = 0;
+my $prevfilecount = 0;
+	
+############## read input list ##############
+while (<INPUT>)
+{
+	chomp $_;
+	s/\r?\n?$//;
+	s/\s+//g;
+	
+	my @fields = split(/:/,$_);
+	chomp @fields;
+	
+	## split into 5 sections split by ':' residue,ali,aro,pol,chg
+	my $residue = $fields[0];
+	my @ali = split(/,/,$fields[1]);
+	my @aro = split(/,/,$fields[2]);
+	my @pol = split(/,/,$fields[3]);
+	my @chg = split(/,/,$fields[4]);
+	
+	chomp @ali;
+	chomp @aro;
+	chomp @pol;
+	chomp @chg;
+	
+	## print 
+	print OUTPUT "case \"". $residue . "\"\n",
+							"{\n".
+							"\tswitch(\$atomtype)\n".
+							"\t{\n";
+	
+	for my $atom (@ali)
+	{
+		if($atom ne '_' && $atom ne 'none' && $atom ne '' && $atom ne 'N' && $atom ne 'CA' && $atom ne 'C' && $atom ne 'OXT' && $atom ne 'O' && $atom ne 'CB')
+		{
+			print OUTPUT "\t\tcase \"". $atom ."\"". "\t{ return \"ali\"; }\n";
+		}
+	}
+	
+	for my $atom (@aro)
+	{
+		if($atom ne '_' && $atom ne 'none' && $atom ne '' && $atom ne 'N' && $atom ne 'CA' && $atom ne 'C' && $atom ne 'OXT' && $atom ne 'O' && $atom ne 'CB')
+		{
+			print OUTPUT "\t\tcase \"". $atom ."\"". "\t{ return \"aro\"; }\n";
+		}
+	}
+	
+	for my $atom (@pol)
+	{
+		if($atom ne '_' && $atom ne 'none' && $atom ne '' && $atom ne 'N' && $atom ne 'CA' && $atom ne 'C' && $atom ne 'OXT' && $atom ne 'O' && $atom ne 'CB')
+		{
+			print OUTPUT "\t\tcase \"". $atom ."\"". "\t{ return \"pol\"; }\n";
+		}
+	}
+	
+	for my $atom (@chg)
+	{
+		if($atom ne '_' && $atom ne 'none' && $atom ne '' && $atom ne 'N' && $atom ne 'CA' && $atom ne 'C' && $atom ne 'OXT' && $atom ne 'O' && $atom ne 'CB')
+		{
+			print OUTPUT "\t\tcase \"". $atom ."\"". "\t{ return \"chg\"; }\n";
+		}
+	}
+	
+	print OUTPUT "\t\telse { print \"\$aatype\|\$atomtype unknown\\n\"; return \"unknown\" ; }\n".
+							 "\t}\n".
+							 "}\n\n";
+}
+
+
+close(OUTPUT);
+close(INPUT);
+	

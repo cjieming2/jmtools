@@ -1,0 +1,708 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use Getopt::Long;
+use Cwd;
+use File::Basename;
+use Pod::Usage;
+use DBI;
+
+=head1 NAME
+
+fcoverage
+
+=head1 SYNOPSIS
+
+fcoverage [options] <hapmap-ld-file>
+  
+ -h                 help
+ -m                 mk-file
+                    a)snp-id
+                    b)chromosome
+ hapmap-ld-file     Hapmap LD files
+ 										filename of the form: ld_chr6_YRI.txt.gz
+                    Col1: Chromosomal position of marker1
+                    Col2: chromosomal position of marker2
+                    Col3: population code
+                    Col4: rs# for marker1
+                    Col5: rs# for marker2
+                    Col6: Dprime
+                    Col7: R square
+                    Col8: LOD
+                    Col9: fbin ( index based on Col1 )
+ -d                 dbSNP version 125, 126 (default) or 128
+ -l                 optional; list of SNPs to exclude e.g. SNPs with MAF < 0.05, default is 'none'.
+                    Please do not name file as 'none'.
+                    SNPs will be excluded from BOTH query and reference panels.
+                    a) snp-id
+                    b) chromosome
+                    
+-i                  mode; default is mode 1. 
+                    mode 2 requires original reference panel (excluding query panel) marker file.
+                    It is calculating coverage when the reference panel contains SNPs from the query panel, i.e. r2 is re-calculated together with HAPMAP SNPs. Mode 2 will not include those SNPs, in R, found only in the query panel.
+
+-r                  reference panel (required only when -i is 2)
+                    a) snp-id
+                    b) chromosome
+
+ example: fcoverage -m pscalare.mk ld_chr1_CHB.txt.gz ld_chr2_CHB.txt.gz
+ 
+ Calculates the coverage of a set of SNPs with respect to Hapmap SNPs.
+ 
+ Coverage was calculated based on a formula by Barrett & Cardon, Nat. Genet. (2006).
+ 
+ Output file:
+ G - number of SNPs in the genome
+ R - number of SNPs in the reference panel e.g. ld_chr1_CHB.txt.gz
+ T - number of tag SNPs in the query panel found in the reference panel e.g. pscalare.mk
+ D - number of SNPs in the query panel not found in reference panel
+ L - number of SNPs in the reference panel not found but in LD with the SNPs in query panel >= respective cutoffs
+ D+T - number of SNPs in that chromosome in query panel e.g. pscalare.mk
+ 
+ (coverage1,coverage2,coverage3) 
+ - coverage1 = (L+T)/R
+ - coverage2 = ((L/(R-T))*(G-T)+T)/G
+ - coverage3 = ((L/(R-T))*(G-T)+T + D) / G
+ 
+ 
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $colNo;
+my $headerProcessed;
+my %label2Column;
+my $mkFile;
+my $distance;
+my $rsquare;
+my %COVERAGE;
+my $dbSNPversion = 126;
+my $maf = 'none';
+my $mode = 1;
+my $referenceMK = 'none';
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+=comment until
+my $dsn = "DBI:mysql:database=tana2;host=10.217.28.55;port=3306";
+
+my $dbh = DBI->connect($dsn, 'fratools', 'p4r15707l3');
+
+#$drh = DBI->install_driver("mysql");
+#@databases = $drh->func($host, $port, '_ListDBs');
+
+my $sth = $dbh->prepare("SELECT chrom, count(distinct name) as count from hg17_snp125 where class = 'single' group by chrom");
+$sth->execute();
+my $numRows = $sth->rows();
+my $numFields = $sth->{'NUM_OF_FIELDS'};
+
+while (my $ref = $sth->fetchrow_hashref()) 
+{
+    print "Found a row: chrom = $ref->{'chrom'}, chromEnd = $ref->{'count'}\n";
+}
+
+$sth->finish;
+
+print "no: $numRows, fields: $numFields\n"; 
+
+exit;
+=cut
+
+if(!GetOptions ('h'=>\$help, 'm=s'=>\$mkFile, 'd=i'=>\$dbSNPversion, 'l=s'=>\$maf, 'i=i'=>\$mode, 'r=s'=>\$referenceMK)
+   || !defined($mkFile) || scalar(@ARGV) < 1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+$| = 1;
+
+#number of SNPs found on each chromosome.
+
+my %G;
+
+## MAF variables
+my $mafheaderProcessed = 0;
+my %mafheader2col;
+my %mafDiscardedSNPList;
+
+if($dbSNPversion == 125)
+{
+	print "DbSNP version is 125...\n";
+	#src: dbSNP125
+	%G = (
+    1 => 751709,
+    2 => 720429,
+    3 => 593937,
+    4 => 626066,
+    5 => 555675,
+    6 => 631748,
+    7 => 517752,
+    8 => 466619,
+    9 => 462733,
+    10 => 489372,
+    11 => 485392,
+    12 => 448870,
+    13 => 350176,
+    14 => 278854,
+    15 => 266559,
+    16 => 305235,
+    17 => 238589,
+    18 => 254717,
+    19 => 200441,
+    20 => 264461,
+    21 => 142382,
+    22 => 174748,
+    X => 381595
+	);
+}
+elsif($dbSNPversion == 128)
+{
+	print "DbSNP version is 128...\n";
+	#src: hg18_dbSNP128 this info is obtained from the database downloaded from UCSC in the fraTools database
+	%G = (
+    1 => 770326,
+    2 => 716394,
+    3 => 581752,
+    4 => 610892,
+    5 => 537378,
+    6 => 611472,
+    7 => 511887,
+    8 => 460454,
+    9 => 452158,
+    10 => 476940,
+    11 => 467035,
+    12 => 435598,
+    13 => 338087,
+    14 => 276819,
+    15 => 268686,
+    16 => 302074,
+    17 => 246387,
+    18 => 250544,
+    19 => 199711,
+    20 => 260579,
+    21 => 138251,
+    22 => 170637,
+    X => 349060
+	);
+}
+else
+{
+	print "Default dbSNP version is 126...\n";
+	
+	#src: hg18_dbSNP126 this info is obtained from the database downloaded from UCSC in the fraTools database
+	%G = (
+    1 => 766507,
+    2 => 716048,
+    3 => 583225,
+    4 => 610644,
+    5 => 538917,
+    6 => 613219,
+    7 => 506574,
+    8 => 461383,
+    9 => 451172,
+    10 => 474628,
+    11 => 468529,
+    12 => 437167,
+    13 => 339086,
+    14 => 276172,
+    15 => 268243,
+    16 => 300425,
+    17 => 245557,
+    18 => 250731,
+    19 => 198541,
+    20 => 258719,
+    21 => 137727,
+    22 => 167983,
+    X => 350888
+    );
+}
+
+########### MODE 2 ###########
+## REF variable
+my %REFSNPS;
+
+if($mode == 2)
+{
+	## read reference MK file
+	if($referenceMK eq 'none')
+	{
+		die "Original reference panel MK file is correct. Please enter a valid filename.";
+	}
+	else
+	{
+		open(REFMK, $referenceMK) || die "Cannot open $referenceMK: $!";
+		my $refmkheaderprocessed = 0;
+		my %refmkheader2col;
+		
+		while(<REFMK>)
+		{
+			chomp $_;
+			my @fields = split(/\t/,$_);
+			chomp @fields;
+			
+			if(!$refmkheaderprocessed)
+			{
+				REF_MK_HEAD: for my $head ('snp-id', 'chromosome')
+				{
+					for (my $i=0;$i<@fields;$i++)
+					{
+						if($fields[$i] eq $head)
+						{
+							$refmkheader2col{$head} = $i;
+							next REF_MK_HEAD;
+						}
+					}
+					
+					die "Cannot find $head in $referenceMK";
+				}
+				
+				$refmkheaderprocessed = 1;
+			}
+			else
+			{
+				my $refsnpid = $fields[$refmkheader2col{'snp-id'}];
+				my $refchr = $fields[$refmkheader2col{'chromosome'}];
+				$REFSNPS{$refchr}{$refsnpid} = 1;
+			}
+		}
+		
+		close(REFMK);
+	}
+}
+elsif($mode == 1)
+{
+	## if mode == 1, carry on
+}
+else
+{
+	die "-i option can only be 1 or 2! Please key in the correct integer.";
+}
+
+print "SNPs are discarded from this file: $maf...\n";
+print "Query panel: $mkFile...\n";
+
+########### DISCARD THESE SNPS ###########
+if($maf ne 'none')
+{
+	## open list of SNPs with MAF < 0.05
+	open(MAF, $maf) || die "Cannot open $maf: $!";
+	
+	## read list of SNPs with MAF < 0.05
+	while(<MAF>)
+  {
+  	my @fields = split(/\t/,$_);
+  	chomp @fields;
+  	
+  	if(!$mafheaderProcessed)
+  	{
+  		MAF_SEARCH_LABEL:for my $label ('snp-id', 'chromosome')
+  		{
+  			for (my $i=0;$i<@fields;$i++)
+  			{
+  				if($label eq $fields[$i])
+  				{
+  					$mafheader2col{$label}=$i;
+  					next MAF_SEARCH_LABEL;
+  				}
+  			}
+  			
+  			die "Cannot find $label in $maf: $!";
+  		}
+  		
+  		$mafheaderProcessed = 1;
+  	}
+  	else
+  	{
+  		my $mafchromosome = $fields[$mafheader2col{'chromosome'}];
+  		my $mafsnpid = $fields[$mafheader2col{'snp-id'}];
+  		$mafDiscardedSNPList{$mafchromosome}{$mafsnpid} = 1;
+  	}
+  }
+  
+  close(MAF);
+}
+
+
+#for my $i (keys %mafDiscardedSNPList) ## debug
+#{
+#	for my $j (keys %{ $mafDiscardedSNPList{$i} })
+#	{
+#		print "|chr $i snp $j|\n";
+#	}
+#}
+
+## read zip files while reading marker file
+for my $file (@ARGV)
+{   
+    print "processing $file ...\n";
+    
+    my %R; #reference
+    my %T; #tagged
+    my %L; #ld with SNP in T
+    
+    my ($name, $path, $ext) = fileparse($file, '\..*');
+    
+    my $isZipped = $ext =~ /\.gz$/ ? 1 : 0;
+    
+    #ld_chr6_YRI.txt.gz
+    $name =~ /ld_chr(.*)_(.*)/;
+    my $chromosome = uc($1);
+    
+    my $querydiscardctr = 0;
+    my $referencediscardctr = 0;
+        
+    print "reading in chromosome $chromosome snps ...\n";
+    
+    ########### QUERY PANEL MARKER FILE ###########
+    #read snp annotation
+    open(MK, $mkFile) || die "Cannot open $mkFile";
+    $headerProcessed = 0;
+    while(<MK>)
+    {
+        s/\r?\n?$//;
+        
+        if(!$headerProcessed)
+        {
+            $colNo = s/\t/\t/g + 1;
+            
+            my @fields = split('\t', $_, $colNo);
+            chomp @fields;
+             
+            SEARCH_LABEL: for my $label ('snp-id', 'chromosome')
+            {
+                for my $col (0 .. $#fields)
+                {
+                    if ($fields[$col] eq $label)
+                    {           
+                        $label2Column{$label}=$col;
+                        next SEARCH_LABEL;
+                    }
+                }
+    
+               	die "Cannot find '$label' in $mkFile";
+            }
+            
+            $headerProcessed = 1;
+        }
+        else
+        {
+            my @fields = split('\t', $_, $colNo);
+            chomp @fields;
+            my $rsID = $fields[$label2Column{'snp-id'}];
+            my $mkflag = 0;
+            
+            #my $MKchromo = $fields[$label2Column{'chromosome'}];
+            
+            #print "$rsID now\n"; #debug
+            
+            if($maf ne 'none')
+            {
+            	#for my $discardedSNP (keys %{ $mafDiscardedSNPList{$chromosome} } )
+            	#{
+            	#	if($discardedSNP eq $rsID)
+            	  if($mafDiscardedSNPList{$chromosome}{$rsID})
+            		{
+            			$mkflag = 1;
+            			$querydiscardctr++;
+            			
+            			#print "discard query panel $rsID\n"; #debug
+            			
+            			#last;
+            		}
+            		else
+            		{
+            			# just pass
+            		}
+            	#}
+            }
+            
+            ## if SNP not discarded
+            if(!$mkflag)
+            {
+            	if($chromosome eq $fields[$label2Column{'chromosome'}])
+            	{
+             	   if (!exists($T{$rsID}))
+               	 {
+                	  $T{$rsID} = 0;
+               	 }
+                 else
+                 {
+        						warn "duplicate rsID : $rsID";
+                 }
+            	}
+            }
+        }
+    }
+    close(MK);
+
+		print "discarded from query panel: chr $chromosome, $querydiscardctr SNPs\n";
+		        
+    if($isZipped)
+    {
+        print "unzipping ...\n";
+        system("gunzip $file") == 0 || die "gunzip failed: $?";
+    }
+    
+    print "computing ...";   
+    
+    my %refDiscardhash;
+    
+    open(LD, "$path$name.txt") || die "Cannot open $file";
+    while(<LD>)
+    {
+    		my $ldflag = 0;
+    		
+        s/\r?\n?$//;
+
+        print "." if ($.%1000000==1);
+
+        #72434 78032 CHB rs4030303 rs940550 1.0 0.0 0.0 0        
+        my @fields = split(" ");
+        chomp @fields;
+        
+        $distance = abs($fields[0] - $fields[1]);
+        $rsquare = $fields[6];
+        
+       	if($maf ne 'none')
+       	{
+       		#for my $discardedSNP (keys %{ $mafDiscardedSNPList{$chromosome} } )
+          #{
+          		if($mafDiscardedSNPList{$chromosome}{$fields[3]})
+          		{
+                	$ldflag = 1;
+            			$refDiscardhash{$fields[3]} = 1;
+            			#last;
+            			
+            			#print "\ndiscard reference panel $fields[3]\n"; #debug
+            	}
+            	elsif($mafDiscardedSNPList{$chromosome}{$fields[4]})
+            	{
+            			$ldflag = 1;
+            			$refDiscardhash{$fields[4]} = 1;
+            			#last;
+            			
+            			#print "\ndiscard reference panel $fields[4]\n"; #debug
+            	}
+            	else
+            	{
+            		# just pass
+            	}
+          #}
+       	}
+       	
+       	if(!$ldflag)
+       	{
+       			if($mode == 2)
+       			{
+       				if(exists($REFSNPS{$chromosome}{$fields[3]}) && !exists($REFSNPS{$chromosome}{$fields[4]}))
+       				{
+       					$R{$fields[3]} = 1;
+       				}
+       				elsif(!exists($REFSNPS{$chromosome}{$fields[3]}) && exists($REFSNPS{$chromosome}{$fields[4]}))
+       				{
+       					$R{$fields[4]} = 1;
+       				}
+       				elsif(exists($REFSNPS{$chromosome}{$fields[3]}) && exists($REFSNPS{$chromosome}{$fields[4]}))
+       				{
+       					$R{$fields[3]} = 1;
+       					$R{$fields[4]} = 1;
+       				}
+       				else
+       				{
+       					## doesnt exist in hapmap, dun count as reference
+       				}
+       			}
+       			else
+       			{
+       				$R{$fields[3]} = 1;
+       				$R{$fields[4]} = 1;
+       			}
+		        
+		        if (exists($T{$fields[3]}) && exists($T{$fields[4]}))
+		        {
+		            $T{$fields[3]} = 1;
+		            $T{$fields[4]} = 1;
+		        }
+		        
+		        elsif (!exists($T{$fields[3]}) && exists($T{$fields[4]}))
+		        {
+		            for my $cutoff (0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)
+		            {
+		                if ($rsquare >= $cutoff)
+		                {
+		                    $T{$fields[4]} = 1;
+		                    $L{$cutoff}{$fields[3]} = 1;
+		                }
+		            }
+		        }
+		        elsif (!exists($T{$fields[4]}) && exists($T{$fields[3]}))
+		        {
+		            for my $cutoff (0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)
+		            {
+		                if ($rsquare >= $cutoff)
+		                {
+		                    $T{$fields[3]} = 1;
+		                    $L{$cutoff}{$fields[4]} = 1;
+		                }
+		            }
+		        }
+       	}
+       	
+    }    
+    close(LD);
+    
+    for my $i (keys %refDiscardhash)
+    {
+    	$referencediscardctr++;
+    }
+    
+    print "\ndiscarded from reference panel: chr $chromosome, $referencediscardctr SNPs\n";
+    
+		#print "\n";
+    #open(D, ">$name.D") || die "Cannot open $name.D";
+    #open(T, ">$name.T") || die "Cannot open $name.T";
+    #open(R, ">$name.R") || die "Cannot open $name.R";
+    #open(U, ">$name.U") || die "Cannot open $name.U";
+        
+    my $D = 0;
+    for my $snp (keys(%T))
+    {
+        if ($T{$snp} == 0)
+        {
+             #print D "$snp\n";
+            $D++;
+        }
+        else
+        {
+            #print T "$snp\n";
+        }
+    }
+    #close(D);
+    #close(T);
+
+    #for my $snp (keys(%R))
+    #{
+    #    print R "$snp\n";
+    #    
+    #    if (!exists($T{$snp}) && !exists($L{$snp}))
+    #    {
+    #        print U "$snp\n";
+    #    }
+    #}
+    #close(R);
+    #close(U);
+    
+    $COVERAGE{$chromosome}{D} = $D;
+    $COVERAGE{$chromosome}{T} = scalar(keys(%T)) - $D;
+    $COVERAGE{$chromosome}{R} = scalar(keys(%R));
+    
+    ###debug
+    for my $snp (keys %R)
+    {
+    	print "R $snp\n";
+    }
+    ########
+    
+    for my $cutoff (0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)
+    {
+        $COVERAGE{$chromosome}{L}{$cutoff} = scalar(keys(%{$L{$cutoff}}));
+        
+        
+        #open(L, ">$name.$cutoff.L") || die "Cannot open $name.$cutoff.L";
+        #for my $snp (keys(%{$L{$cutoff}}))
+        #{
+        #    #print L "$snp\n";
+        #    print "$snp\n";
+        #}
+        #close(L);
+    }   
+
+    if($isZipped)
+    {
+        print "zipping ...\n";
+        system("gzip $path$name.txt") == 0 || die "gzip failed: $?";
+    }    
+
+    print "done\n"; 
+}
+
+my $totalD = 0;
+my $totalT = 0;
+my $totalR = 0;
+my $totalG = 0;
+my %totalL = ();
+my $totalDiscard = 0;
+
+# output file
+my $ofile = "fcoverage-report.txt";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+print OUTPUT "chromosome\tG\tD\/G\tT\/G\t(D+T)\/G\tD\tT\tR\tL:0.0\tL:0.1\tL:0.2\tL:0.3\tL:0.4\tL:0.5\tL:0.6\tL:0.7\tL:0.8\tL:0.9\tL:1.0\n";
+for my $chromosome (sort {if ("$a$b"=~/\D/) {$a cmp $b} else {$a <=> $b}} keys(%COVERAGE))
+{
+    my $D = $COVERAGE{$chromosome}{D};
+    my $T = $COVERAGE{$chromosome}{T};
+    my $R = $COVERAGE{$chromosome}{R};
+    my $G = $G{$chromosome};
+    my $L;
+    $totalD += $D;
+    $totalT += $T;
+    $totalR += $R;
+    $totalG += $G;
+  
+    printf OUTPUT "$chromosome\t$G\t%.4f\t%.4f\t%.4f\t$D\t$T\t$R", $D/$G, $T/$G, ($D+$T)/$G;
+    for my $cutoff (0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)
+    {
+        $L = $COVERAGE{$chromosome}{L}{$cutoff};
+        $totalL{$cutoff} += $L;
+        
+        if($R != 0)
+        {
+        	
+        	printf OUTPUT "\t$L(%.4f,%.4f,%.4f)", 
+        		($L+$T)/$R,
+        		(($L/($R-$T))*($G-$T) + $T) / $G, 
+        		(($L/($R-$T))*($G-$T) + $T + $D) / $G;
+        	
+        }
+        else
+        {
+        	die "Num of SNPs in reference panel in chr$chromosome is 0. Please remove that gz file.";
+        }
+    }
+    
+    print OUTPUT "\n";
+}
+
+printf OUTPUT "genome\t$totalG\t%.4f\t%.4f\t%.4f\t$totalD\t$totalT\t$totalR", $totalD/$totalG, $totalT/$totalG, ($totalD+$totalT)/$totalG;
+for my $cutoff (0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)
+{   
+	if($totalR != 0)
+	{
+    
+    printf OUTPUT "\t$totalL{$cutoff}(%.4f,%.4f,%.4f)", 
+    	($totalL{$cutoff}+$totalT)/$totalR,
+    	(($totalL{$cutoff}/($totalR-$totalT))*($totalG-$totalT) + $totalT) / $totalG, 
+    	(($totalL{$cutoff}/($totalR-$totalT))*($totalG-$totalT) + $totalT + $totalD) / $totalG;
+    
+  }
+  else
+  {
+  	die "Num of SNPs in genome reference panel is 0!";
+  }
+}
+
+print OUTPUT "\n";
+
+close(OUTPUT);

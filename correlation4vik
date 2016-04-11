@@ -1,0 +1,313 @@
+#!/usr/bin/perl -w
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+## this script is specific to the format of 
+## merged-305819-illumina-affy-norm-intensities found in /home/chenjm/vikrant/cnv/affy-illumina/raw-intensites
+## header being rs-id   probeset-id-probe       probe   GM10851.CEL	affy(intensities)
+## ==> note that snp-id is used instead of rs-id; 2nd June 2010
+## make sure also that the alleles A and B of the same probes are consec lines A top B btm
+## this script does not check for that
+## for matching samples between affy and illumina, affy column always first (b4 illumina)
+## caters to only 1 duplicate sample
+
+=head1 NAME
+
+correlation2vik
+
+=head1 SYNOPSIS
+
+ -h                    help
+ -x                    types of manuipulations (required)
+                       1) abs - absolute difference
+                       2) sum - simple summation
+                       3) ref - a sample is used as reference in the ratio sum(A+B)/(sumA+B of reference sample)
+ 
+ -r                    reference sample 1; required only if "ref" is chosen.
+                       It MUST be UNIQUE, with suffix -affy, with all the other samples with this suffix will referenced.
+                       example: GM10851.CEL-affy
+ -s                    reference sample 2; required only if "ref" is chosen.
+                       It MUST be UNIQUE, with suffix -illumina, with all the other samples with this suffix will referenced.
+                       example: GM10851-illumina
+                         
+ intensity-file        
+ this file must include the following header, strictly in this order
+ 1)snp-id
+ 2)can be any information
+ 3)probe A or probe B
+ 4-)GM10851.CEL-affy/GM10851-illumina (intensities)
+ Rows: ASSUMES alleles A and B of the same probe are consecutive rows, with A top B bottom.
+ Columns: ASSUMES intensity of the same sample from affymetrix and illumina are consecutive columns (4th col onwards), with affy first, illumina next (naming convention, see header above)
+       
+ example: correlation4vik merged-305819-illumina-affy-norm-intensities.txt -x ref -r GM10851.CEL-affy -s GM10851-illumina
+ 
+ This script is a very specific (and primitive) script for consecutive row value manipulations - sum, difference. In the utilization of reference samples, this script can ONLY accept 2 types of reference samples.
+ Initially built for intensity manipulations between Affymetrix and Illumina values, hence the suffix was built in to be "affy" and "illumina". 
+ The code can be used to accommodate any 2 types: affy/illumina <-> A/B.
+ 
+ Output file extensions: .abs, .sum, .ref depending the manipulation executed.
+  
+=head1 DESCRIPTION
+
+=cut
+
+my $suffixA = 'affy';
+my $suffixB = 'illumina';
+
+my $help;
+my $flag = '';
+my $refsample1 = '';
+my $refsample2 = '';
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'x=s'=>\$flag, 'r=s'=>\$refsample1, 's=s'=>\$refsample2) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## first column "rs-id"
+## second column junk
+## third column on: the samples
+
+if($flag !~ m/(abs|ref|sum)/)
+{
+	die "Invalid -x option!:$!";
+}
+
+## input file
+my $ifile = $ARGV[0];
+open(INPUT, $ifile) || die "Cannot open $ifile";
+my @input = <INPUT>;
+
+## output file
+my $ofile;
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+
+if($flag eq "abs") ## absolute difference
+{
+	$ofile = "$name.abs";
+}
+elsif($flag eq "sum") ## sum
+{
+	$ofile = "$name.sum";
+}
+elsif($flag eq "ref") ## GM10851 is the reference, so sum/ref(GM10851)
+{
+	$ofile = "$name.ref";
+}
+
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+## variables
+my $headerProcessed = 0;
+my $rsidCol = 0;
+my %header2col;
+my $checksnp = '';
+my $checksnpflag = 0;
+
+my $diff = 0;
+my $sum = 0;
+my $refe = 0;
+
+my @lineA;
+my @affy;
+my @illumina;
+my $dup = 0;
+my @refoutput;
+my $colafterprobe;
+my $checkcolumn = 0;
+
+## reading input file array
+LINE: foreach my $line1 (@input)
+{
+	chomp $line1;
+	my @fields = split("\t", $line1);
+	chomp @fields;
+	
+	## process header
+	if (!$headerProcessed)
+	{
+		if($flag eq 'ref')
+		{
+			## reference samples check
+			if($refsample1 eq '' || $refsample2 eq '')
+			{
+				unlink($ofile);
+				die "Reference samples were not given: $!";
+			} 
+			
+			## checking the header
+			LABEL:for my $myheader ('snp-id','probe',$refsample1,$refsample2)
+			{
+				for(my $i=0;$i<@fields;$i++)
+				{
+					if($myheader eq $fields[$i])
+					{
+						$header2col{$myheader} = $i;
+						next LABEL;
+					}
+				}
+				
+				unlink($ofile);
+				die "$myheader not found:$!";
+			}
+			
+			for(my $i=0;$i<@fields;$i++)
+			{
+				## storing the affy and illumina #############################
+				if($fields[$i] =~ /($suffixA)/)
+				{
+					#print "$fields[0]\taffy $i\n"; ##debug
+					push(@affy, $i);
+				}## store illumina col num (including GM10851)
+				elsif($fields[$i] =~ /($suffixB)/)
+				{
+					#print "$fields[0]\tillumina $i\n"; ##debug
+					push(@illumina, $i);
+				}
+			}
+		} ## ref 
+		else
+		{
+			LABEL2: for my $myheader('snp-id','probe')
+			{
+				for(my $i=0;$i<@fields;$i++)
+				{
+					if($myheader eq $fields[$i])
+					{
+						$header2col{$myheader} = $i;
+						next LABEL2;
+					}
+				}
+				
+				unlink($ofile);
+				die "$myheader not found:$!";
+			}
+		}
+		
+		## intensities data starts from col after "probe"	
+	  $colafterprobe = $header2col{'probe'} + 1;
+		
+		print OUTPUT "snp-id";	
+		for (my $i=$colafterprobe;$i<@fields;$i++) ####LINEA
+		{
+			print OUTPUT "\t$fields[$i]"; 
+		}
+		print OUTPUT "\n";
+		
+		#print join ("\n",@lineA); ##debug	
+		
+		$headerProcessed = 1;
+	}
+	else ## non-header
+	{				
+		my @snp=split(/\-/,$fields[$header2col{'snp-id'}]);
+		
+		## requires that the probes A and B are 2 consec lines, with A first then B
+		if ($snp[1]eq "A") ## lineA
+		{
+			## checking step			
+			if((($checksnp ne $snp[0]) && ($checksnpflag == 2)) || ($checksnpflag == 0))
+			{
+				$checksnp = $snp[0];
+				$checksnpflag = 1;
+			}
+			else
+			{
+				unlink($ofile);
+				die "snp-id-probe in lines before and with $snp[0]-$snp[1] are not consecutive:$!";
+			}
+								
+			for (my $i=$colafterprobe;$i<@fields;$i++) ####LINEA
+			{
+				push(@lineA, $fields[$i]); 
+			}
+			#print join ("\n",@lineA); ##debug
+			
+			next LINE;
+		}
+		elsif ($snp[1]eq "B") ##line B
+		{
+			## snp checking
+			if(($checksnp eq $snp[0]) && ($checksnpflag == 1))
+			{
+				$checksnpflag = 2;
+			}
+			else
+			{
+				unlink($ofile);
+				die "snp-id-probe in lines before and with $snp[0]-$snp[1] are not consecutive:$!";
+			}
+			
+			######
+			
+			print OUTPUT "$snp[0]";
+			for (my $i=0;$i<@lineA;$i++)
+			{
+				
+				#print $i;##debug
+				#print "\t$lineA[$i]\t$fields[$i+2]\n"; ##debug
+				
+				################ change here
+				if ($flag eq "abs")
+				{
+					$diff=abs($lineA[$i] - $fields[$i+$colafterprobe]);
+					print OUTPUT "\t$diff";
+				}
+				elsif($flag eq "sum")
+				{
+					$sum=$lineA[$i] + $fields[$i+$colafterprobe];
+					print OUTPUT "\t$sum";
+				}
+				elsif($flag eq "ref")
+				{
+					## @lineA index 0 value starts from field $colafterprobe #refer to LINEA
+					
+					foreach my $j (@affy) ## @affy contains the col number of each affy sample
+					{
+						$refe=($fields[$j]+$lineA[$j-$colafterprobe])/ ($fields[$header2col{$refsample1}]+$lineA[$header2col{$refsample1}-$colafterprobe]);
+						$refoutput[$j] = $refe; ## map back to original index
+					}
+					
+					foreach my $j (@illumina) ## @illumina contains the col number of each illumina sample
+					{
+						$refe=($fields[$j]+$lineA[$j-$colafterprobe])/ ($fields[$header2col{$refsample2}]+$lineA[$header2col{$refsample2}-$colafterprobe]);
+						$refoutput[$j] = $refe;
+					}
+				} ## end of "ref"
+			} ## iterate lineB
+			
+			foreach my $i (@refoutput)
+			{
+				if(defined($i))
+				{
+					print OUTPUT "\t$i";
+					#print "\n$i"; ##debug
+				}
+			}
+			
+			print OUTPUT "\n";
+			
+			## reinitialise line A
+			@lineA = ();
+			
+		} ## line of lineB 'if' block
+	}
+}
+
+close(INPUT);
+close(OUTPUT);

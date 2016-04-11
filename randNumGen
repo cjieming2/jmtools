@@ -1,0 +1,75 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use POSIX;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+randNumGen
+
+=head1 SYNOPSIS
+
+ randNumGen [options] -r <range> <an integer>
+
+  -h help
+  <range> format: seq(start,end,by); default: seq(1,100,1)
+  value pool to randomly pick numbers from. Note it is start and end inclusive. start, end, by can be integers or floats
+  
+  <an integer> this integer tells the script to generate this number of non-redundant random numbers
+  
+  note the script throws an error if <an integer> is greater than (exceeds) floor((end-start+1)/by)
+  
+  OUTPUT:
+  a streaming output with <an integer> number of rows (i.e. no header), with each row a random number (unsorted)
+  
+  Example:
+     randNumGen -r 2,40,1 5
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $range = "1,100,1";
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('r=s'=>\$range,'h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input 
+my $numOfVals = $ARGV[0];
+my ($start,$end,$by) = split(",",$range);
+
+## exception
+if(floor(($end-$start+1)/$by) < $numOfVals)
+{
+	die "the number of integers you want exceeds the range possible : floor((end-start+1)/by)\nPlease choose a smaller integer!:$!";
+}
+
+## variables
+my $ctr = $start;
+my @RANGE;
+
+## arrayize the range
+for (my $i=0;$ctr<=$end;$i++)
+{
+	$RANGE[$i] = $ctr;
+	print $RANGE[$i]."\t$i\t\n";
+	$ctr = $ctr + $by;
+}

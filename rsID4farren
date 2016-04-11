@@ -1,0 +1,365 @@
+#!/usr/bin/perl -w
+
+use warnings;
+use strict;
+use fralib;
+use Getopt::Long;
+use File::Basename;
+use Pod::Usage;
+
+=head1 NAME
+
+reID4farren
+
+=head1 SYNOPSIS
+
+ rsID4farren [options] <inputfile>
+
+  -h                     help
+  -o                     output file name (optional)
+                      
+  -r                     restriction endonuclease tab-delimited list with the following headers:
+                         a) enzyme
+                         b) recognition_sequence
+                         Potentially, you can have any entity with a recognition sequence, e.g. stop codons.
+                         
+  -w                     boolean (optional); Default = 0
+                         'wobbliness' for RS
+                         e.g. if a RS is AATAGG, setting this option to 1 will toggle 'AANAGG', 'AATNGG' and 'AATGG' etc.
+                         to be captured in the results as well. Currently it is set to 'wobble' one and two bases only.
+                         The script can be modified to include more 'wobbliness'.
+  
+  <inputfile>            sequence FASTA file
+  
+  This script returns a restriction map and the flanking sequence for the oligos, given a sequence and a list of recognition sites.
+  If the restriction site length is an odd number, there will be an additional base at the right flank (arbitrary choice).
+  For nucleotide sequence only.
+  
+  This is an incomplete script:
+  1) 'wobbliness' option can be further improved.
+  2) restriction sites with non-ACTG characters (e.g. Y for pYrimidines) are filtered out 
+  instead of queried. This works fine, but just need to be careful when finding RS not found 
+  in FASTA; if you sieve those RE with non-ACTG RS will be in the sieved list too.
+  So basically, just ignore those. Until this script is modified to include them properly.
+  
+  OR you can definitely rewrite the code.
+  
+  example: rsID4farren -w 1 -r re.list -o restricEnz-input1.list input1.fa
+        
+=head1 DESCRIPTION
+
+=cut
+
+my $help;
+my $ifile;
+my $ofile;
+my $reFile;
+my $wobble = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'o=s'=>\$ofile, 'r=s'=>\$reFile, 'w=i'=>\$wobble) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+# read FASTA and list of restriction sites
+$ifile = $ARGV[0];
+my $optimalOligoLen = 90;
+
+if (!defined($ofile))
+{
+	my ($name, $path, $ext) = fileparse($ifile, '\..*');
+	$ofile = "restrictEnz-$name.list";
+}
+
+open(IN, $ifile) || die "Cannot open $ifile\n";
+open(RE, $reFile) || die "Cannot open $reFile\n";
+open(OUT, ">$ofile") || die "Cannot open $ofile\n";
+
+if($wobble)
+{
+	print OUT "enzyme\trecognition_site\twobble\tdifferences\tstartPos\tendPos\toligo$optimalOligoLen\treverseComplement\n";
+}
+else
+{
+	print OUT "enzyme\trecognition_site\tstartPos\tendPos\toligo$optimalOligoLen\treverseComplement\n";
+}
+
+my $flag = 0;
+my $sequence = '';
+
+## loop FASTA file
+ITER:while(<IN>)
+{
+	chomp $_;
+	my @line = split(//,$_);
+	
+	# catch if not FASTA file
+	if(($line[0] eq ">") && ($flag==0))
+	{
+		$flag = 1;
+		next ITER;
+	}
+	elsif(($line[0] ne ">") && ($flag==0))
+	{
+		die "non-FASTA file (or string file if --string on) does not have title that starts with '>'!:$!";
+	}
+	else
+	{
+		# string up the FASTA into one long string
+		$sequence = $sequence.$_; 
+	}
+}## end of one line of fa file
+
+$sequence = lc($sequence);
+
+## restriction enzymes list
+my $reheaderprocessed = 0;
+my %header2col;
+my @pr;
+
+while(<RE>)
+{
+	chomp $_;
+	my @line = split(/\t/,$_);
+	
+	if(!$reheaderprocessed)
+	{
+		HEAD:foreach my $label ('recognition_sequence', 'enzyme')
+		{
+			for (my $i=0; $i<@line; $i++)
+			{
+				if($line[$i] eq $label)
+				{
+					$header2col{$label} = $i;
+					next HEAD;					
+				}
+			}
+			die "$label not found: $!";
+		}
+		
+		$reheaderprocessed = 1;
+		
+	} # process header
+	else
+	{
+		my $rs = $line[$header2col{'recognition_sequence'}];
+		$rs = lc($rs);
+		my @recogseq = split(//,$rs); 
+		
+		# print on-screen if restriction sites contain characters that represent multiple bases such as Y - pyrimidine C,T
+		if($rs =~ m/[rykmswbdhvnx]/i)
+		{
+			print "|$rs|\n";
+		}
+		elsif($rs =~ m/[efijlopquz]/i) # catch any other exceptions
+		{
+			print "non-actg|$rs|\n";
+		}
+		elsif($rs =~ m/[actg]/i) # print to output for sites with only ACTG
+		{
+			my $e = $line[$header2col{'enzyme'}];
+			
+			# wobbliness			
+			if($wobble)
+			{
+				my $wobbleseqarray = wobble($rs);
+				my @wobbleseqarray = @$wobbleseqarray;
+				
+				foreach my $word (@wobbleseqarray)
+				{
+					my $aa = findword($word,$sequence,$e,$rs,$wobble);
+					my @aa = @$aa;
+					push (@pr,@aa);
+				}
+			}
+			else
+			{
+				# finding the sequence
+				my $aa = findword($rs,$sequence,$e,$rs,$wobble);
+				my @aa = @$aa;
+				push (@pr,@aa);
+			}		
+		}
+		else 
+		{
+			print "unknown character|$rs|\n";
+		}
+	}
+}
+
+my %uniqhash = map{ $_ => 1 } @pr;
+
+foreach my $mytime (sort keys %uniqhash)
+{
+	print OUT $mytime;
+}
+	  
+close(RE);
+close(OUT);
+close(IN);
+
+###################################################################
+# function - find a word in the sequence
+# for simplicity prints into file directly
+# can be modified to do other variations
+
+sub findword
+{
+	my ($findthis,$sequence,$e,$rs,$wobble) = (shift,shift,shift,shift,shift);
+  my @printer;
+  
+	while($sequence =~ m/($findthis)/gi)
+	{
+		my $subseqstart = pos($sequence)-length($1)+1;
+		my $subseqend = pos($sequence);
+		my $subseq = substr($sequence,$subseqstart-1,length($1));
+		my $leftflanklen = 0;
+		my $rightflanklen = 0;
+		
+		if((length($1)%2) == 0) # even number
+		{
+			$leftflanklen = ($optimalOligoLen-length($1))/2;
+			$rightflanklen = ($optimalOligoLen-length($1))/2;
+		}
+		else
+		{
+			$leftflanklen = int(($optimalOligoLen-length($1))/2);
+			$rightflanklen = int(($optimalOligoLen-length($1))/2)+1;
+		}
+				
+		my $frontsubseq = '';
+		my $backsubseq = '';
+		my $revcomp = '';
+		
+		if(($subseqstart-1-$leftflanklen) < 0) # if the left flank exceeds start of sequence
+		{
+			$frontsubseq = substr($sequence,0,$subseqstart-1);
+			$backsubseq = substr($sequence,$subseqend,$rightflanklen);
+		}
+		elsif(($subseqend+$rightflanklen) > length($sequence)) # if the right flank exceeds end of sequence
+		{
+			$frontsubseq = substr($sequence,$subseqstart-1-$leftflanklen,$leftflanklen);;
+			$backsubseq = substr($sequence,$subseqend,length($sequence)-$subseqend+1);
+		}
+		else
+		{
+			$frontsubseq = substr($sequence,$subseqstart-1-$leftflanklen,$leftflanklen);;
+			$backsubseq = substr($sequence,$subseqend,$rightflanklen);
+		}
+		
+		if($wobble)
+		{
+			#$rs = uc($rs);
+			my $diff = 0;
+			
+			# count differences
+			if(length($rs) != length($1))
+			{
+				$diff = length($1)-length($rs);
+			}
+			else
+			{
+				# ^ stringwise operator compares strings via ASCII char by char; matches = 0
+				# counts the number of matches between 2 strings
+				my $matches = ($rs ^ $1) =~ tr/\0//;
+				$diff = $matches - length($rs);				
+			}
+			
+			$revcomp = reverseComp("$frontsubseq\_$subseq\_$backsubseq");
+			push(@printer, $e."\t$rs\t$1\t$diff\t".$subseqstart."\t".$subseqend.
+		      "\t$frontsubseq\_$subseq\_$backsubseq\t$revcomp\t"."\n");
+		}
+		else
+		{
+			$revcomp = reverseComp("$frontsubseq\_$subseq\_$backsubseq");
+			push(@printer, $e."\t$1\t".$subseqstart."\t".$subseqend.
+		      "\t$frontsubseq\_$subseq\_$backsubseq\t$revcomp\t"."\n");
+		}
+	}
+	return \@printer;
+}
+
+###################################################################
+# function - reverse complements
+# only works with ACTG now not the others (like Y or R)
+
+sub reverseComp
+{
+	my $seq = shift;
+	my $revseq = reverse $seq;
+	my @rev = split(//,$revseq);
+	my @final;
+	
+	for(my $i=0;$i<@rev;$i++)
+	{
+		if($rev[$i] =~ m/a/i)
+		{
+			$final[$i] = 't';
+		}
+		elsif($rev[$i] =~ m/c/i)
+		{
+			$final[$i] = 'g';
+		}
+		elsif($rev[$i] =~ m/t/i)
+		{
+			$final[$i] = 'a';
+		}
+		elsif($rev[$i] =~ m/g/i)
+		{
+			$final[$i] = 'c';
+		}
+		else
+		{
+			$final[$i] = $rev[$i];
+		}
+	}
+	
+	my $revcomp = join("",@final);
+	return $revcomp;
+}
+
+###################################################################
+# function - the wobble words
+# inputs a RS and outputs an array containing the original word 
+# with ACTG(deletion) at the wobble positions
+
+# wobbliness, define the strings to search in sequence
+sub wobble
+{
+	  my $rs = shift;
+	  my @recogseq = split(//,$rs);
+	  my @wobarray;
+	  
+	  for(my $i=0;$i<length($rs);$i++)
+	  {	  	
+	  	# initialize
+	  	my @temp1 = @recogseq;
+	  	my @temp2 = @recogseq;
+	  	
+	  	$temp1[$i] = "\[actg\]";
+#	  	if(($i+1)<=length($rs))
+#	  	{
+#	  		$temp1[$i+1] = "\[actg\]";
+#	  	}
+	  	splice(@temp2,$i,1);
+	  	push(@wobarray,(join('',@temp1),join('',@temp2)));
+	  }
+	  
+	  my %uniqhash = map{ $_ => 1 } @wobarray;
+	  my @uniqwobarray = sort keys %uniqhash;
+	  
+		#debug
+#		print "@wobarray\n@uniqwobarray\n";
+				
+		return \@uniqwobarray;
+}

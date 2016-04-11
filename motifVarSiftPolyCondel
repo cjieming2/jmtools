@@ -1,0 +1,143 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+blosum
+
+=head1 SYNOPSIS
+
+ -h help
+ 
+ -b blosum file; space-delimited; first char is "#" to signify header
+ -c column number (1-based) in which the information about Condel, SIFT and Polyphen reside, 
+    assuming all are in a single column separated by ';'. 
+    E.g. Condel=neutral(0.003);PolyPhen=benign(0);SIFT=tolerated(0.64)
+
+	INPUT file: No header please. E.g. a BED file
+  
+  OUTPUT: 
+  outputs 9 cols, depending on whether they can find Condel, Polyphen or SIFT ( cols each)
+  the method, consequence and scores are outputted as a column each
+  
+  USAGE:
+     motifVarSiftPolyCondel -c 2 snp.bed > jm.bed
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $col = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'c=i'=>\$col) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+
+if($col == 0)
+{
+	die "column cannot be $col";
+}
+
+
+# read input file
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+# variables
+my %storage;
+my @orderedrows;
+
+LINE1:while (<INPUT>)
+{
+	s/\r?\n?$//;
+	chomp $_;
+	my @fields = split(/\t/, $_);
+	
+	## initialize these for each row
+	my $condel = 0;
+	my $polyphen = 0;
+	my $sift = 0;
+	my $col = $col-1;
+	
+	### store info for printing
+	push (@orderedrows, $_);
+	
+	my @things = split(/;/,$fields[$col]);
+	chomp @things; 
+
+	for (my $i=0;$i<@things;$i++)
+	{
+		# Condel
+		if($things[$i] =~ m/Condel=(.*)\((.*)\)/)
+		{
+			$storage{$_}{'Condel'}{'conseq'}= $1;
+			$storage{$_}{'Condel'}{'scores'}= $2;
+			$condel = 1;
+		} # Polyphen
+		elsif($things[$i] =~ m/PolyPhen=(.*)\((.*)\)/)
+		{
+			$storage{$_}{'PolyPhen'}{'conseq'}= $1;
+			$storage{$_}{'PolyPhen'}{'scores'}= $2;
+			$polyphen = 1;
+		} # SIFT
+		elsif($things[$i] =~ m/SIFT=(.*)\((.*)\)/)
+		{
+			$storage{$_}{'SIFT'}{'conseq'}= $1;
+			$storage{$_}{'SIFT'}{'scores'}= $2;
+			$sift = 1;
+		}
+		
+		if(($condel+$polyphen+$sift) == 3){ last; }
+	}
+	
+	if(!$condel) 
+	{
+		$storage{$_}{'Condel'}{'conseq'}= 'NA';
+		$storage{$_}{'Condel'}{'scores'}= 'NA';
+	}
+	if(!$polyphen)
+	{
+		$storage{$_}{'PolyPhen'}{'conseq'}= 'NA';
+		$storage{$_}{'PolyPhen'}{'scores'}= 'NA';
+	}
+	if(!$sift)
+	{
+		$storage{$_}{'SIFT'}{'conseq'}= 'NA';
+		$storage{$_}{'SIFT'}{'scores'}= 'NA';
+	}
+}
+
+## print
+for my $row (@orderedrows)
+{
+	print $row;
+	print "\tCondel\t$storage{$row}{'Condel'}{'conseq'}\t$storage{$row}{'Condel'}{'scores'}";
+	print "\tPolyPhen\t$storage{$row}{'PolyPhen'}{'conseq'}\t$storage{$row}{'PolyPhen'}{'scores'}";
+	print "\tSIFT\t$storage{$row}{'SIFT'}{'conseq'}\t$storage{$row}{'SIFT'}{'scores'}";
+	
+	print "\n";
+}
+
+close(INPUT);
+	

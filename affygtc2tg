@@ -1,0 +1,152 @@
+#!/usr/bin/perl -w
+
+use warnings;
+use strict;
+use fralib;
+use Getopt::Long;
+use File::Basename;
+use Pod::Usage;
+
+=head1 NAME
+
+affygtc2tg
+
+=head1 SYNOPSIS
+
+ affygtc2tg [options] <affygtc-call-file>	
+
+  -h                     help
+  -o                     output file name (optional)
+                         default: replaces extension of 
+                         <affymetrix-call-file>	with tg
+  affygtc-call-file      Affymetrix GTC3.0 or 4.0 genotype output file
+       
+ example: affygtc2tg -o geno.tg brlmm-calls.txt
+       
+ Converts the affymetrix calls output file from Affy Genotyping Console to a tg-file similar to that of Birdsuite
+       
+=head1 DESCRIPTION
+
+=cut
+
+my $help;
+my $affymetrixFile;
+my $tgFile;
+my $headerProcessed = 0;
+my @callColNo;
+my $sampleid = "jm";
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'o=s'=>\$tgFile) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+my $affyFile = $ARGV[0];
+
+if (!defined($tgFile))
+{
+	my ($name, $path, $ext) = fileparse($affyFile, '\..*');
+	$tgFile = "$name.tg";
+}
+
+open(IN, $affyFile) || die "Cannot open $affyFile\n";
+open(OUT, ">$tgFile") || die "Cannot open $tgFile\n";
+
+while (<IN>)
+{
+	if(!$headerProcessed) 
+	{
+		# if this is the correct GTC output file
+		if (/^Probeset ID/ || /^Probe Set ID/)
+		{
+			print OUT "snp-id";
+			
+			# split into its columns
+			my @columns = split("\t",$_);
+			chomp @columns;
+			
+			for(my $i=1;$i<@columns;$i++)
+			{				
+				# inside the column, split according to "." to obtain sample-id
+				my @samples = split(/\./, $columns[$i],2); # "\." doesnt work
+				chomp @samples;
+				
+				if($sampleid ne $samples[0])
+				{
+					$sampleid = $samples[0];
+					print OUT "\t$sampleid\.CEL";
+				}
+				
+				# inside the column, split according to " " to obtain what each column really mean in the output file
+				my @fields = split(" ", $columns[$i]);
+				chomp @fields;
+				
+				if($fields[1] eq 'Call')
+				{
+					push (@callColNo, $i);
+				}
+			}
+
+			print OUT "\n";
+			$headerProcessed = 1;
+		}
+		else # not correct GTC output file
+		{
+			die "$affyFile not a Affy GTC3.0 Genotype Output file";
+		}
+	}
+	else # if header processed
+	{
+		my @fields = split(/\t/, $_);
+		chomp @fields;
+		
+		# print snp-id for each SNP
+		print OUT "$fields[0]";
+			
+		for my $num (@callColNo)  
+		{
+			my $recoded = allelesto012($fields[$num]);
+			print OUT "\t$recoded";
+		}
+			
+		print OUT "\n";
+	}
+} #one line/SNP per file
+
+close(OUT);
+close(IN);
+
+#########################################################################
+# this subroutine converts the alleles in GTC output to 0,1,2,-1 codings
+
+sub allelesto012
+{
+	my $alleles = shift;
+	
+	if ($alleles eq 'AA')
+	{
+		return '0';
+	}
+	elsif ($alleles eq 'AB')
+	{
+		return '1';
+	}
+	elsif ($alleles eq 'BB')
+	{
+		return '2';
+	}
+	elsif ($alleles eq 'NoCall')
+	{
+		return '-1';
+	}
+}

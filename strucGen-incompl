@@ -1,0 +1,222 @@
+#!/usr/bin/perl -w
+
+use warnings;
+use fralib;
+use Getopt::Long;
+use Pod::Usage;
+use File::Copy;
+use Cwd;
+
+=head1 NAME
+
+strucGen
+
+=head1 SYNOPSIS
+
+strucGen [options]	
+
+  -h      Displays this help page
+  -k      Set the minimum and/or maximum value of K required in the STRUCTURE input file.
+          A single value is allowed.
+  
+  generates the PBS shell scripts and the wrapper script for qsub job submission
+  can be comma-delimited, or hypenated
+  
+  example 1:
+  		    strucGen -k 2-5
+  		    strucGen -k 2,5
+  
+  -p      (optional) boolean; 1 to generate mainparams and extraparams files
+  
+  The following parameters are required if -p 1:
+  -M      (required) NUMINDS, number of samples/individuals
+  -s      (required) NUMLOCI, number of snps
+  -g      (required) input file name (.dat)
+  -b      (required) number of burnins before start of data collection (default 10000)
+  -r      (required) number of MCMC reps after burnin (default 20000)
+  -l      LABEL, boolean; 0 for samples with no labels (default is 1)
+  -f      FREQCORR, boolean; 1 for allele frequency correlated assumption (default is 1)
+  -A      NOADMIX, boolean; 1 for model with no admixture (default is 0)
+  
+  example 2:
+          strucGen -p 1 -M 20 -s 28 -g geno.dat -l 1 -b 20000 -r 20000 -f 1 -A 1
+	 
+  Output the shell scripts for the new cluster
+  Optionally outputs "mainparams" and "extraparams" files for STRUCTURE
+    
+=head1 DESCRIPTION
+
+=cut
+
+# option variables
+my $help = 0;
+my $k = 0;
+my $param = 0;
+my $numSamples = 0;
+my $numSnps = 0;
+my $genoFile;
+my $label = 1;
+my $numBurnins = 10000;
+my $numMCMC = 20000;
+my $freqCorr = 1;
+my $admix = 0;
+my $needWrap = 1;
+
+# command line error handling
+if (GetOptions ('h'=>\$help, 'k=s'=>\$k, 'p=i'=>\$param, 'M=i'=>\$numSamples, 
+                's=i'=>\$numSnps, 'g=s'=>\$genoFile, 'l=i'=>\$label, 
+	              'b=i'=>\$numBurnins, 'r=i'=>\$numMCMC, 'f=i'=>\$freqCorr, 'A=i'=>\$admix))
+{
+	if ($help)
+	{
+		pod2usage(-verbose => 2);
+	}
+}
+
+if ($param)
+{
+	if (($numSamples == 0) || ($numSnps == 0) || (!defined($genoFile)) || 
+	    ($numBurnins == 0) || ($numMCMC == 0))
+  {
+  	die "Lack of required parameters for mainparams and extraparams!\n";
+  }
+  else 
+  {
+  	# generate mainparams and extraparams
+    genFile($numSamples, $numSnps, $genoFile, $label, $numBurnins, $numMCMC, $freqCorr, $admix);
+  }
+}
+
+# if there is only one value of K
+# comments are in else{}
+if($k =~ m/^\d+$/)
+{
+	sh($k, $numSamples, $numSnps);
+}
+elsif ($k eq 0)
+{
+	die "Lack of parameter k:$!";
+}
+else # k is not a single value
+{
+	# k is a range
+	if ($k =~ m/\d+(-)\d+/)
+	{
+		my @items=split("-",$k);
+		chomp @items;
+		
+		foreach my $i ($items[0]..$items[1])
+		{ 	
+			sh($i, $numSamples, $numSnps);
+			
+			if ($needWrap)
+			{
+				my @k = ($items[0]..$items[1]);
+				# generate 1 wrapper qsub shell script to submit all the PBS scripts
+				wrap(@k);
+			
+				$needWrap = 0;
+			}		
+			
+		}
+		
+	}
+	# single numbers comma-delimited
+	elsif($k =~ m/\d+(,)\d+/) 
+	{
+		my @items = split(",",$k);
+		chomp @items;
+		
+		foreach my $i (@items)
+		{
+			# generate PBS shell scripts
+			sh($i, $numSamples, $numSnps);
+			
+			if ($needWrap)
+			{
+				# generate 1 wrapper qsub shell script to submit all the PBS scripts
+				wrap(@items);
+			
+				$needWrap = 0;
+			}		
+		}
+	}
+	else
+	{
+		die "$k is not a valid parameter format!!";
+	}
+	
+}
+
+
+#-----------------------------------------------------------------------
+#######################################################################
+# this function generates the mainparams and extraparams
+sub genFile
+{
+	my ($numSamples, $numSnps, $genoFile, $label, $numBurnins, $numMCMC, $freqCorr, $admix) 
+			= ($_[0], $_[1], $_[2], $_[3], $_[4], $_[5], $_[6], $_[7]);
+	
+	# note that though MAXPOPS is k, we chose to change k in the scripts
+	# mainparams
+	my $mfile = "mainparams";
+	open(MAIN, ">$mfile") || die "Cannot open $mfile: $!";
+	print MAIN "\#define INFILE $genoFile\n\#define OUTFILE struc.out\n\#define NUMINDS $numSamples\n".
+	           "\#define NUMLOCI $numSnps\n\#define LABEL $label\n\#define POPDATA 1\n".
+	           "\#define POPFLAG 0\n\#define PHENOTYPE 0\n\#define EXTRACOLS 0\n\#define PHASEINFO 0\n".
+	           "\#define MISSING -1\n\#define PLOIDY 2\n\#define ONEROWPERIND 0\n\#define MAPDISTANCES 0\n".
+	           "\#define MAXPOPS 7\n\#define BURNIN $numBurnins\n\#define NUMREPS $numMCMC\n".
+	           "\#define INFERLAMBDA 0\n\#define FREQSCORR $freqCorr\n"; # need extra \n at the end
+	close(MAIN);
+	
+	# extraparams
+	my $efile = "extraparams";
+	open(EXTRA, ">$efile") || die "Cannot open $efile: $!";
+	print EXTRA "#define ANCESTDIST 1\n\#define NOADMIX $admix\n\#define FREQSCORR $freqCorr\n";
+	close(EXTRA);
+}
+
+########################################################################
+# this function generates the PBS shell scripts
+sub sh
+{
+	my ($k) = ($_[0]);
+#	my $x = 8;
+#	my $y = 8; 
+	my $cwd = cwd(); 
+	
+#	if ($k < 8){ $y = 4; }
+#	else { $y =8; }
+	             
+	my $sfile = "script-struct$k.sh";
+	open (SCRIPT, ">$sfile") || die "Cannot open $sfile: $!"; 
+	print SCRIPT "#!\/bin\/sh\n#PBS -N jm-struct$k\n".
+	             "#PBS -l ncpus=1\n#PBS -V\n#PBS -o job$k.log\n#PBS -e job$k.err\n".
+	             "date\ncd $cwd\n".
+	             "structure -K $k -o output$k > struct-out-new.$k\ndate\n";
+	close(SCRIPT);
+}
+
+########################################################################
+# this function generates wrapper for the PBS shell scripts
+sub wrap
+{
+	my @k = @_[0..$#_];
+
+	if ($#k == 0)
+	{
+		my $wrapFile = "script-wrap$k[0]-struct.sh";
+    open (WRAP, ">$wrapFile") || die "Cannot open $wrapFile: $!";
+		print WRAP "#!\/bin\/sh\nfor ((i=$k[0];i<$k[0];i++))\ndo\n  qsub script-struct\$i.sh\ndone\n";
+		close (WRAP);
+	}
+	else
+	{
+		my $wrapFile = "script-wrap$k[0]$k[$#_].sh";
+		open (WRAP, ">$wrapFile") || die "Cannot open $wrapFile: $!";
+		$k[$#_] = $k[$#_]+1; # cos K=2-14 will have 13 numbers
+		print WRAP "#!\/bin\/sh\nfor ((i=$k[0];i<$k[$#_];i++))\ndo\n  qsub script-struct\$i.sh\ndone\n";
+		close (WRAP);		
+		chmod (0777, $wrapFile);
+	}
+}

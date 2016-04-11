@@ -1,0 +1,374 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+imputeCompare
+
+=head1 SYNOPSIS
+
+  imputeCompare [options]
+
+  -h help
+  
+  the script takes the predicted tsv file (from Arif, which has the deciding number of SNVs) and 
+  makes it into a dictionary to compare with the imputed SNVs (ssv, which will be based on -pgs option
+  where imputed genotypes overwrite the input genotypes if different)
+  
+  calculates concordance and 'accuracy' (Arif file has that data)
+  
+  IMPT the script assumes that the cols are synched in both files and according to the number below (7th col on)
+  
+  input:
+  <.beddat>
+  chr1    714018  714019  rs114983708     A       G       -1 0
+  col1:chr,
+  col2:start (0based)
+  col3:end   (1based)
+  col4:rsid
+  col5:ref allele
+  col6:alt allele
+  col7a: predicted (space delimited) (0,1,2,-1; script doesnt check)
+  col7b: from 1KG (0,1,2,-1; script doesnt check)
+  
+  <.imputeg>
+  chr1 SNP43693 rs6575768 100764387 T C 1 0 0
+  col1:chr
+  col2:snpid
+  col3:rsid
+  col4:pos
+  col5:ref
+  col6:alt
+  col7,8,9: genotype AA AB BB of 1 individual
+  currently there is NO threshold to determine missing; the highest is considered
+  if there is a tie for the highest = missing
+  
+  
+  output:
+  col1:beddat filename
+  col2:total 1KG predictions (incl missing)
+  col3:total 1KG predictions (excl missing)
+  col4:total privaseq predictions (incl missing, +m)
+  col5:total privaseq predictions (excl missing, -m)
+  col6:num privaseq predictions concordant with 1KG (%+m;%-m)
+  col7:total imputed (incl missing)
+  col8:total imputed (excl missing)
+  col9:num imputed concordant with 1KG (%+m;%-m)
+  col10:given missing privaseq predictions, num imputed SNVs concordant with 1KG
+  col11:given nonmissing privaseq predictions, num imputed SNVs concordant with 1KG
+  
+  
+  
+  Example:
+     imputeCompare -i jm.chrimputeg jm.beddat
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $imputefile = '';
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'i=s'=>\$imputefile) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+##### input file
+my $beddat = $ARGV[0];
+
+##### processing files
+my ($SNP,$MISSING,$CONCORDANT,$TOTAL,$MISSINGIND) = processBeddat();
+$SNP = processImpute($SNP,$MISSING,$CONCORDANT,$TOTAL);
+my %SNPh = %$SNP;
+my %MISSINGh = %$MISSING;
+my %CONCORDANTh = %$CONCORDANT;
+my %TOTALh = %$TOTAL;
+my %MISSINGINDh = %$MISSINGIND;
+
+$TOTALh{'imputed'}{'all'} = 0;
+$TOTALh{'imputed'}{'nonmissing'} = 0;
+
+$MISSINGh{'imputed1kg'} = 0;
+
+$CONCORDANTh{'imputed'}{'missing'} = 0;
+$CONCORDANTh{'imputed'}{'nonmissing'} = 0;
+
+##### counting
+## for genotypes that are missing in privaseq
+for my $snp (sort keys %SNPh)
+{
+	for my $ind (sort {$a <=> $b} keys %{ $SNPh{$snp}{'ind'} })
+	{
+		#print "$snp|$ind|$SNPh{$snp}{'ind'}{$ind}{'imputed'}\n"; ##debug
+		## is it in imputed?
+		if(exists($SNPh{$snp}{'ind'}{$ind}{'imputed'}))
+		{
+			$TOTALh{'imputed'}{'all'}++;
+			
+			if($SNPh{$snp}{'ind'}{$ind}{'imputed'} != -1)
+			{
+				$TOTALh{'imputed'}{'nonmissing'}++;
+			}
+			else
+			{
+				if($SNPh{$snp}{'ind'}{$ind}{'1kg'} == -1)
+				{
+					$MISSINGh{'imputed1kg'}++;
+				}
+			}
+		}
+		else
+		{
+			die "$snp not in $imputefile:$!";
+		}
+
+		## if privaseq missing
+		if($SNPh{$snp}{'ind'}{$ind}{'privaseq'} == -1)
+		{
+			## if imputed also missing, skip
+			if($SNPh{$snp}{'ind'}{$ind}{'imputed'} == -1)
+			{
+				next;
+			}
+			else ## if imputed not missing, check concordance with 1KG
+			{
+				## if concordant
+				if($SNPh{$snp}{'ind'}{$ind}{'imputed'} == $SNPh{$snp}{'ind'}{$ind}{'1kg'})
+				{
+					$CONCORDANTh{'imputed'}{'missing'}++;
+				}
+			}
+		} 
+		else ## if privaseq nonmissing
+		{
+			## accurate impute
+			if($SNPh{$snp}{'ind'}{$ind}{'imputed'} == $SNPh{$snp}{'ind'}{$ind}{'1kg'})
+			{
+				$CONCORDANTh{'imputed'}{'nonmissing'}++;
+			}
+		}
+	}
+}
+
+##### print
+## debug
+#print "category(condition)\tprivaseq\t1KG\timpute\n";
+#print "totalNumber(inclMissing)\t$TOTALh{'privaseq'}{'all'}\t$TOTALh{'1kg'}{'all'}\t$TOTALh{'imputed'}{'all'}\n";
+#print "totalNumber(exclMissing)\t$TOTALh{'privaseq'}{'nonmissing'}\t$TOTALh{'1kg'}{'nonmissing'}\t$TOTALh{'imputed'}{'nonmissing'}\n";
+#print "missingNumber(when1kgMissing)\t$MISSINGh{'privaseq1kg'}\tNA\t$MISSINGh{'imputed1kg'}\n";
+#print "concord(with1kg,whenPriNonMiss)\t$CONCORDANTh{'privaseq'}\tNA\t$CONCORDANTh{'imputed'}{'nonmissing'}\n";
+#print "concord(with1kg,whenPriMiss)\tNA\tNA\t$CONCORDANTh{'imputed'}{'missing'}\n";
+## debug
+
+#print "file\ttotal1kg(+m)\ttotal1kg(-m)".
+#					"\ttotalpri(+m)\ttotalpri(-m)\tc_pri_1kg".
+#					"\ttotalimp(+m)\ttotalimp(-m)\tc_imp_1kg".
+#					"\tc_imp_1kg|+m_pri\tc_imp_1kg|-m_pri\n";
+printf "$beddat\t$TOTALh{'1kg'}{'all'}\t$TOTALh{'1kg'}{'nonmissing'}";
+printf "\t$TOTALh{'privaseq'}{'all'}\t$TOTALh{'privaseq'}{'nonmissing'}\t$CONCORDANTh{'privaseq'}(%.2f;%.2f)", 
+		$CONCORDANTh{'privaseq'}/$TOTALh{'privaseq'}{'all'},$CONCORDANTh{'privaseq'}/$TOTALh{'privaseq'}{'nonmissing'};
+		
+my $conc_imputed = $CONCORDANTh{'imputed'}{'missing'} + $CONCORDANTh{'imputed'}{'nonmissing'};
+printf "\t$TOTALh{'imputed'}{'all'}\t$TOTALh{'imputed'}{'nonmissing'}\t$conc_imputed(%.2f;%.2f)",
+    $conc_imputed/$TOTALh{'imputed'}{'all'},$conc_imputed/$TOTALh{'imputed'}{'nonmissing'};
+
+printf "\t$CONCORDANTh{'imputed'}{'missing'}(%.2f)\t$CONCORDANTh{'imputed'}{'nonmissing'}(%.2f)\n", 
+    $CONCORDANTh{'imputed'}{'missing'}/($TOTALh{'privaseq'}{'all'} - $TOTALh{'privaseq'}{'nonmissing'}),
+    $CONCORDANTh{'imputed'}{'nonmissing'}/$TOTALh{'privaseq'}{'nonmissing'};
+
+
+
+###################################################################
+## subroutines
+###################################################################
+sub processImpute
+{
+	open (IMPUTE, $imputefile) || die "Cannot open $imputefile: $!";
+	
+	my ($SNP) = (shift);
+	my %SNPhash = %$SNP;
+	my $indivStartCol = 6;
+	
+	while(<IMPUTE>)
+	{
+		chomp $_;
+		my @fields = split(" ",$_);
+		my $ctr = 0;
+		chomp @fields;
+		
+		my $chr  = $fields[0];
+		my $pos  = $fields[3]; # 1-based
+		my $rsid = $fields[2];
+		my $ref  = $fields[4];
+		my $alt  = $fields[5];
+		my $keyy = $chr.'-'.$pos.'-'.$rsid;
+		my $alleles = $ref.$alt;
+		
+		if(!exists($SNPhash{$keyy})){	next;	}
+		if($SNPhash{$keyy}{'allele'} ne $ref.$alt)
+		{ 
+			die "$keyy alleles not the same -> BEDDAT=$SNPhash{$keyy}{'allele'}, IMPUTE=$alleles:$!";
+		}
+				
+		## store genotype for impute
+		for (my $i=$indivStartCol;$i<@fields;$i+=3)
+		{
+			my $max  = 0;
+			my $geno = -1;
+			my $index = 0;
+			
+			## compare 3 genotype probabiilities
+			foreach my $j (0..2)
+			{
+				if($fields[$i+$j] > $max){  $max = $fields[$i+$j]; $geno = $j; $index = $j;}
+			}
+			
+			## search if there's a tie for the highest
+			foreach my $j (0..2)
+			{
+				if($j == $index){ next; }
+				if($fields[$i+$j] == $max){  $geno = -1; last;  }
+			}
+			
+			if($max == 0){ $geno = -1; }
+			
+			$SNPhash{$keyy}{'ind'}{$indivStartCol+$ctr}{'imputed'} = $geno;
+			#print "IMPUTESUB|$keyy|$i|$indivStartCol+$ctr|$SNPhash{$keyy}{'ind'}{$indivStartCol+$ctr}{'imputed'}\n"; ##debug
+			
+			$ctr++;
+		}
+	}
+	
+	close(IMPUTE);
+	
+	return \%SNPhash;
+}
+
+
+
+sub processBeddat
+{
+	open (BEDDAT, $beddat) || die "Cannot open $beddat: $!";
+	
+	## variables
+	my %SNP;
+	my %INDIV;
+	my $indivStartCol = 6;
+	my %MISSING;
+	my %CONCORDANT;
+	my %TOTAL;
+	my %MISSINGIND;
+
+	$MISSING{'privaseq'} = 0;
+	$MISSING{'1kg'} = 0;
+	$MISSING{'privaseq1kg'} = 0;
+	
+	$CONCORDANT{'privaseq'} = 0;
+	
+	$TOTAL{'privaseq'}{'all'} = 0;
+	$TOTAL{'privaseq'}{'nonmissing'} = 0;
+	$TOTAL{'1kg'}{'all'} = 0;
+	$TOTAL{'1kg'}{'nonmissing'} = 0;
+	
+	while(<BEDDAT>)
+	{
+		chomp $_;
+		my @fields = split("\t",$_);
+		chomp @fields;
+		
+		my $chr  = $fields[0];
+		my $pos  = $fields[2]; # 1-based
+		my $rsid = $fields[3];
+		my $ref  = $fields[4];
+		my $alt  = $fields[5];
+		my $keyy = $chr.'-'.$pos.'-'.$rsid;
+		
+		$SNP{$keyy}{'allele'} = $ref.$alt;
+		
+		for(my $i=$indivStartCol;$i<@fields;$i++)
+		{
+			my @genotype = split(" ",$fields[$i]);
+			$SNP{$keyy}{'ind'}{$i}{'privaseq'} = $genotype[0];
+			$SNP{$keyy}{'ind'}{$i}{'1kg'} = $genotype[1];
+			
+			$TOTAL{'1kg'}{'all'}++;
+			$TOTAL{'privaseq'}{'all'}++;
+			
+			## what to do with missing data
+			if($genotype[1] == -1)
+			{
+				$MISSING{'1kg'}++;
+			}
+			else
+			{
+				$TOTAL{'1kg'}{'nonmissing'}++;
+			}
+			
+			if($genotype[0] == -1)
+			{
+				## which are the missing individuals
+				$MISSINGIND{$keyy}{$i} = 1;
+				$MISSING{'privaseq'}++;
+				
+				## if both prediction and actual missing, skip to next person
+				if($genotype[1] == -1)
+				{
+					$MISSING{'privaseq1kg'}++;
+					next;
+				}
+			}
+			else # prediction is not missing
+			{
+				$TOTAL{'privaseq'}{'nonmissing'}++;
+				
+				if($genotype[0] == $genotype[1])
+				{
+					$CONCORDANT{'privaseq'}++;
+				}
+			}
+		}
+		
+	} # each row of input file
+	close(BEDDAT);
+	
+	#### debug
+#	print "number of total privseq predictions (incl missing) = $TOTAL{'privaseq'}{'all'}\n";
+#	print "number of total privseq predictions (excl missing) = $TOTAL{'privaseq'}{'nonmissing'}\n";
+#	print "number of missing privaseq predictions             = $MISSING{'privaseq'}\n";
+#	print "number of total 1KG genotypes (incl missing)       = $TOTAL{'1kg'}{'all'}\n";
+#	print "number of total 1KG genotypes (excl missing)       = $TOTAL{'1kg'}{'nonmissing'}\n";
+#	print "number of missing 1KG genotypes                    = $MISSING{'1kg'}\n";
+#	print "number of missing genotypes in both                = $MISSING{'privaseq1kg'}\n";
+#	print "number of concordant privaseq-1kg gt (excl missing)= $CONCORDANT{'privaseq'}\n";
+#	
+#	print "These individuals have missing genotypes in privaseq:";
+#	for my $snp (sort {$a cmp $b} keys %MISSINGIND)
+#	{
+#		for my $ind (sort {$a <=> $b} keys %{ $MISSINGIND{$snp} })
+#		{
+#			print " $snp\.$ind";
+#		}
+#	}
+#	print "\n";
+	####
+		
+	return (\%SNP,\%MISSING,\%CONCORDANT,\%TOTAL,\%MISSINGIND);
+}

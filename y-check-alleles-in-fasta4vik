@@ -1,0 +1,188 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+y-check-alleles-in-fasta4vik
+
+=head1 SYNOPSIS
+
+ y-check-alleles-in-fasta4vik [options] <fasta-file> 	
+
+  -h help
+  -M snp marker file (required) ; contains unique headers
+     (a)alleles, (b)snp-id, (c)position
+     this script allows a variation of header for alleles and snp-id (eg alleles-african, snp-id-european)
+     The position does not need to be sorted.
+     
+  -o output filename
+    
+  This script compares the single allele in a Y-chromosome SNP in marker file with the one in the fasta file at that position. if the alleles do not match, it is flagged out in the output file as 'match=0'.
+  Example:
+     y-check-alleles-in-fasta4vik -M snp.mk jm.fa
+     
+  Default output: fachecked-<filename>
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $mkfile;
+my $outputfile = 0;
+
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'M=s'=>\$mkfile, 'o=s'=>\$outputfile) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input files
+my $ifile = $ARGV[0];
+
+open (INPUT, $ifile) || die "Cannot open $ifile:$!";
+open (MK, $mkfile) || die "Cannot open $mkfile:$!";
+
+my($faname, $fapath, $faext) = fileparse($ifile, '\..*');
+
+## output file
+my $ofile = '';
+
+if($outputfile ne 0)
+{
+	$ofile = $outputfile;
+}
+else
+{
+	my($name, $path, $ext) = fileparse($mkfile, '\..*');
+	$ofile = "fachecked-$name.txt";
+}
+
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile:$!";
+
+## variables
+my @sequence=();
+
+## read FASTA file to obtain sequence
+ITER:while(<INPUT>)
+{
+	chomp $_;
+	my @line = split(//,$_);
+	
+	if($line[0] eq ">")
+	{
+		next ITER;
+	}
+	else
+	{
+		push(@sequence, @line);
+	}
+}
+
+#print "\n@sequence\n"; ##debug
+
+## marker variables
+my $markerheaderProcessed = 0;
+my %header2col;
+my $count=0;
+
+## sequence obtained
+## read mk file and check with this sequence
+while(<MK>)
+{
+	my @fields = split(/\t/, $_);
+	chomp @fields;
+	
+	if(!$markerheaderProcessed)
+	{
+		MLINE: for(my $i=0;$i<@fields;$i++)
+		{
+			if($fields[$i] =~ m/snp-id/)
+			{
+				$header2col{'snp-id'} = $i;
+				next MLINE;
+			}
+			elsif($fields[$i] =~ m/alleles/)
+			{
+				$header2col{'alleles'} = $i;
+				print OUTPUT "snp-id\tposition\tfasta-$faname\tmarker-$fields[$i]\tmatch\n";
+				next MLINE;
+			}
+			elsif($fields[$i] eq 'position')
+			{
+				$header2col{'position'} = $i;
+				next MLINE;
+			}
+		}
+		$markerheaderProcessed = 1;
+	}## else, marker header processed
+	else
+	{		
+		my $snpid = $fields[$header2col{'snp-id'}];
+		my $malleles = $fields[$header2col{'alleles'}]; ## alleles from marker
+		my $position = $fields[$header2col{'position'}];
+		
+	 
+		if($position > @sequence)
+		{
+			warn "Please check: position $position at ID $snpid is more than the length of the FASTA sequence: $!";
+			warn "Will be printed as pos-exceed-FASTA-length in output file: $!";
+			print OUTPUT "$snpid\t$position\tpos-exceed-FASTA-length\t$malleles\n";
+		}
+		elsif($malleles !~ m/^[A-Za-z]+$/)
+		{
+			die "Please check: allele $malleles at ID $snpid is non-character in marker file: $!";
+			close(OUTPUT);
+			unlink($ofile);
+		}
+		elsif($position !~ m/\d+/)
+		{
+			die "Please check: position $position at ID $snpid is a non-digit in marker file: $!";
+			close(OUTPUT);
+			unlink($ofile);
+		}
+		elsif($malleles ne $sequence[$position-1]) ## not matched
+		{
+			## lower upper case issue still a match
+			if((lc($malleles) eq $sequence[$position-1]) || (uc($malleles) eq $sequence[$position-1]))
+			{
+				print OUTPUT "$snpid\t$position\t$sequence[$position-1]\t$malleles\t1\n";
+			}
+			else ## not matched
+			{
+				print OUTPUT "$snpid\t$position\t$sequence[$position-1]\t$malleles\t0\n";
+				$count++;
+			}
+		}
+		else ## matched
+		{
+			print OUTPUT "$snpid\t$position\t$sequence[$position-1]\t$malleles\t1\n";
+		}
+	}
+}
+
+if(!$count)
+{
+	print "Congrats! All the alleles are correct!\n";
+}
+
+close(OUTPUT);
+close(INPUT);
+close(MK);

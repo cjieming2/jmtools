@@ -1,0 +1,162 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+vcf2tsv
+
+=head1 SYNOPSIS
+
+ vcf2tsv [options] <vcf-file>	
+
+  -h help
+  converts to tab-delimited file
+  >uses and then removes lines with '##'
+  
+  this allows piping
+  
+  OUTPUT: <infile>.tsv (default)
+  Example:
+     vcf2tsv genotype.vcf > vcf2tsv genotype.tsv
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+#my($name, $path, $ext) = fileparse($ifile, '\..*');
+#my $ofile = "$ifile.tsv";
+#open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+	
+# variables
+my $printflag = 0;
+print "CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER";
+my @headers;
+my %header2col;
+my $sampleflag = 0;
+my @samplescol;
+
+# read file
+LINE: while (<INPUT>)
+{
+	chomp $_;
+	my @data = split(/\t/,$_);
+	
+	# lines to print
+	s/^\s+//g;
+	s/\s+$//g;
+	
+	# header; used to create hashes for each col	
+	if($_ =~ m/^\#\#/)
+	{
+		if($_ =~ m/\=\<ID\=(.*?)\,/g)
+		{
+			push (@headers,$1);
+			print "\t$1"; # print header in output
+		}
+	}
+	# header; prime for output
+	elsif($_ =~ m/^\#CHROM/)
+	{
+		SEARCH: for my $hhi ('#CHROM','POS','ID','REF','ALT','QUAL','FILTER','INFO','FORMAT')
+		{
+			for(my $j=0;$j<@data;$j++)
+			{
+				if($hhi eq $data[$j])
+				{
+					$header2col{$hhi}=$j;
+					
+					# samples/genotypes present
+					if($hhi eq 'FORMAT')
+					{
+						$sampleflag = 1;
+						
+						print "\tFORMAT";
+						
+						for(my $k=$j+1;$k<@data;$k++)
+						{
+							print "\t$data[$k]";
+							push(@samplescol,$k);
+						}
+					}
+					
+					next SEARCH;
+				}
+			}
+			
+			die("Cannot find $hhi") unless ($hhi eq 'FORMAT');
+		}
+		
+		print "\n";
+	}
+	# print data
+	else
+	{
+		print "$data[$header2col{'#CHROM'}]\t$data[$header2col{'POS'}]\t$data[$header2col{'ID'}]\t".
+											"$data[$header2col{'REF'}]\t$data[$header2col{'ALT'}]\t$data[$header2col{'QUAL'}]\t".
+											"$data[$header2col{'FILTER'}]";
+		
+		# print INFO stuff 
+		my @f = split(/;/,$data[$header2col{'INFO'}]);									
+		SEARCH_HEAD: for(my $k=0;$k<@headers;$k++)
+		{
+			for my $ff(@f)
+			{
+				if($ff =~ m/^($headers[$k])\=(.*)/)
+				{
+					#print OUTPUT "\t$ff"; # if LDAF=0.1562 use $ff
+					print "\t$2";
+					next SEARCH_HEAD;
+				}
+			}
+			#print "\t$headers[$k]\=.";
+			print "\t\.";
+		}
+		
+		# if genotype data present
+		if($sampleflag)
+		{
+			print "\t$data[$header2col{'FORMAT'}]";
+			
+			for(my $i=0;$i<@samplescol;$i++)
+			{
+				print "\t$data[$samplescol[$i]]";
+			}
+		}
+		
+		print "\n";
+	}
+
+}
+
+close(INPUT);
+#close(OUTPUT); 

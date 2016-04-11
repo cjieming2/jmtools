@@ -1,0 +1,93 @@
+#!/usr/bin/perl -w
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+illumina-bysample-format4jj
+
+=head1 SYNOPSIS
+
+ illumina-bysample-format4jj [options] <txt-file>	
+
+  -h help
+  <txt-file> 
+  Pre-formatting has to be done on the file that has to be the final report from Beadstudio, by sample (i.e. all SNPs for 1 sample are placed together).
+  
+  Pre-format:
+  a) Requires only the [Data] portion.
+  b) All SNPs for one sample for one file, using UNIX split.  
+  c) Requires fields: SNP Name, Sample Name, Allele1 - Top, Allele2 - Top
+  do not require the header!
+  
+  Converts the final report to pre-TG format for one sample. use UNIX 'paste' command or Affy Power Tool 'apt-tsv-join' to paste them all together by columns. The latter is better due to SNP recognition, the former has to be careful of the order of the SNPs.
+  Requires illumina2tg in fraTools to convert to TG format.
+  
+  Example:
+     illumina-bysample-format4jj geno.txt
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+#if (@ARGV==0)
+#{
+#	die "NO ARGUMENTS!: $!";
+#}
+
+# variables
+# assuming the file fed in is with illumina report format by sample
+# meaning all the same sample-ids are lumped together
+# converts to tg format
+my $ifile=$ARGV[0];
+my $ofile="output-$ifile";
+my $headerProcessed = 2;
+my $sampleid;
+
+# open file 
+open (INPUT, $ifile) || die "Cannot open $ifile:$!";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile:$!";
+
+LINE: while (<INPUT>)
+{	
+	my @items=split(/\t/,$_);
+	chomp @items;
+	
+	if ($headerProcessed == 2)
+	{
+		## output header and first line
+		print OUTPUT "snp-id\t$items[1]\n";
+		$headerProcessed -= 1;
+	}
+	
+	if ($headerProcessed == 1)
+	{
+		print OUTPUT "$items[0]\t$items[2]$items[3]\n";
+	}
+}
+
+close (INPUT);
+close (OUTPUT);

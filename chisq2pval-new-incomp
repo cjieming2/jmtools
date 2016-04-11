@@ -1,0 +1,282 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+chisq2pval-new
+
+=head1 SYNOPSIS
+
+ chisq2pval [options]	<tsvfile>
+
+  -h help
+  -c column(s)
+  -d degree of freedom, default is 1 (required)
+  tsvfile tab-delimited file with header
+ 	
+ 	-v alternatively a single value can be queried; output will be onscreen
+ 		 requires the -d option else default is 1
+ 		 requires also the word "chisqval"
+  
+  Example:
+  	chisq2pval-new -c 1,3 geno.tsv
+  	chisq2pval-new -v 0.07982 chisqval
+    
+    Outputs the original file plus extra columns appending "-p<column-number>" to the original header name
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $col = 0;
+my $tsvFile;
+my $df = 1;
+my $value = -1;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'd=i'=>\$df, 'c=s'=>\$col, 'v=s'=>\$value) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+
+if ($value != -1)
+{
+	## chisq input
+	#my $chisq = 3.84;
+	my $pval = chisq2p($value,$df);
+	printf "p-value for chisq value $value is: $pval\n";
+	exit;
+}
+
+## column flag
+my $cflag;
+chomp $col;
+ 
+## column parsing
+## one value of c
+if($col =~ m/^\d+$/)
+{
+	$cflag = "single";
+}
+## if k is 0
+elsif ($col eq 0)
+{
+	die "Lack of parameter c:$!";
+}
+else # k is not a single value
+{
+	## k is a range, hypenated
+	if ($col =~ m/\d+(-)\d+/)
+	{
+		$cflag = "hyphen";
+	}
+	## single numbers comma-delimited
+	elsif($col =~ m/\d+(,)\d+/) 
+	{
+		$cflag = "comma";
+	}
+	else
+	{
+		die "$col is not a valid parameter format!!";
+	}
+}
+
+## input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+my $ofile = "$ifile.chi2p";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+## variables
+my $headerProcessed = 0;
+my $colno = 0;
+my $maxi = 0;
+
+LINE: while(<INPUT>)
+{
+	$colno = s/\t/\t/g + 1;
+	
+	chomp $_;
+	print OUTPUT "$_";
+	my @fields = split(/\t/,$_);
+	chomp @fields;
+	
+	## header not processed
+	if(!$headerProcessed)
+	{		
+		if($cflag eq "single")
+		{
+			if ($col > $colno)
+			{
+				close (OUTPUT);
+				unlink($ofile);
+				die "There are lesser number of columns than the one stated in parameter c!!";
+			}
+			
+			my $column = $col - 1;
+			print OUTPUT "\t$fields[$column]\-p$col";
+		}
+		elsif($cflag eq "hyphen")
+		{
+			my @columns = split("-",$col);
+			if ($columns[1] > $colno)
+			{
+				close (OUTPUT);
+				unlink($ofile);
+				die "There are lesser number of columns than the one stated in parameter c!!";
+			}
+			
+			foreach my $column ($columns[0]..$columns[1])
+			{				
+				$column = $column - 1;
+				printf OUTPUT "\t$fields[$column]\-p%d", $column+1;
+			}
+		}
+		elsif($cflag eq "comma")
+		{
+			my @columns = split(",",$col);
+			chomp @columns;
+			for (my $i=0; $i<@columns;$i++)
+			{
+				if($maxi < $columns[$i])
+				{
+					$maxi = $columns[$i];
+				}
+			}
+			
+			if ($maxi > $colno)
+			{
+				close (OUTPUT);
+				unlink($ofile);
+				die "There are lesser number of columns than the one stated in parameter c!!";
+			}
+			
+			foreach my $column (@columns)
+			{
+				$column = $column - 1;
+				printf OUTPUT "\t$fields[$column]\-p%d", $column+1;
+			}
+		}
+		
+		print OUTPUT "\n";
+		$headerProcessed = 1;
+		next LINE;
+	}
+	else ## header processed
+	{
+		if($cflag eq "single")
+		{
+			my $column = $col - 1;
+			my $pval = chisq2p($fields[$column],$df);
+			printf OUTPUT "\t$pval";
+		}
+		elsif($cflag eq "hyphen")
+		{
+			my @columns = split("-", $col);
+			
+			foreach my $column ($columns[0]..$columns[1])
+			{
+				$column = $column - 1;
+				my $pval = chisq2p($fields[$column],$df);
+				printf OUTPUT "\t$pval";
+			}
+		}
+		elsif($cflag eq "comma")
+		{
+			my @columns = split("," , $col);
+		  chomp @columns;
+			
+			foreach my $column (@columns)
+			{
+				$column = $column - 1;
+				my $pval = chisq2p($fields[$column],$df);
+				printf OUTPUT "\t$pval";
+			}
+		}
+	}
+	print OUTPUT "\n";
+}
+
+close(INPUT);
+close(OUTPUT);
+##############################################################################################################################
+## gamma function approximation - Lanczos Approximation
+## gamma(z) = ( (sqrt(2*pi)/z) * ( p0 + (p1/z+1) + ... + (p6/z+6) )) *
+## 						( (z+5.5)^(z+0.5) ) * exp( -1*(z+5.5) )
+
+sub gamma
+{
+	my $z = shift;
+	print "Approximating gamma distribution...\n";
+	
+	my $p0 = 1.000000000190015;
+  my $p1 = 76.18009172947146;
+  my $p2 = -86.50532032941677;
+  my $p3 = 24.01409824083091;
+  my $p4 = -1.231739572450155;
+  my $p5 = 1.208650973866179 * 0.001;
+  my $p6 = -5.395239384953 * 0.000001;
+  
+  my $SQRT_2_PI = 2.506628274631;
+  
+  my $pseudoP = $p0 +($p1/($z+1)) + ($p2/($z+2)) + ($p3/($z+3)) + ($p4/($z+4)) + ($p5/($z+5)) + ($p6/($z+6));
+  return ($SQRT_2_PI/$z) * $pseudoP * ($z+5.5**$z+0.5) * exp(-1*($z+5.5));
+
+}
+
+#######################################################
+## incgamma(x,a) = (x^a)*exp(-x)*sum(n=0:infinity){(x^n)/(a*(a+1)*...*(a+n))}
+## Error:  Arbitrary.  As accurate as perl allows
+## http://www.dreamincode.net/forums/showtopic12775.htm
+
+sub incgamma
+{
+	my ($x, $a) = (shift,shift);
+	print "Approximating incomplete gamma distribution...\n";
+	
+	my $sum = 0;
+	my $term = 1.0/$a;
+	my $count = 1;
+	
+	while($term != 0)
+	{
+		$sum = $sum + $term;
+		$term = $term * ($x/($a + $count));
+		$count++;
+	}
+	
+	return (($x**$a) * exp(-1*$x) * $sum);
+}
+
+#######################################################
+## chisq2p -- probability of chi-sq value (CDF)
+## lowergamma(1/2,x/2)/gamma(1/2) where gamma(1/2)=SQRT(PI)
+## chidist(x,v) = ( exp((-1*x)/2) * x^( (v/2) - 1) ) / ( 2^(v/2) * gamma(v/2) )
+## where x >= 0
+
+sub chisq2p
+{
+	my ($chisq, $df) = (shift, shift);
+	my $pval = incgamma($chisq/2.0, $df/2.0)/gamma($chisq/2.0);
+	return $pval;
+}

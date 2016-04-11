@@ -1,0 +1,185 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+alleleAddPop
+
+=head1 SYNOPSIS
+
+ alleleAddPop [options] <input BED-like file>
+
+  -h help
+  
+  -c sample column; it should be in this format: sample1;sample2
+  -s sample file; it should have a header. this script specifically looks for "sample-id", "population" and "world". If sample not found, NA is produced.
+  -t TF, split format kasowski_SA1_NA18505; default is 0
+  
+  OUTPUT:
+  this script finds the population and world population class of samples and counts the number of populations for all samples in that line
+  
+ 	BED-like file - first 3 col are that of BED files, i.e. chr,start (0-based) and end (1-based)
+ 	last 4 cols are for populations 
+ 	last 4th col = population
+ 	last 3rd col = num of populations in this SNV
+ 	last 2nd col = world population
+ 	last 1st col = num of world population in this SNV
+
+ 	
+  Example:
+     alleleAddPop -c 6 -s pop.txt intHet.maf.ase.bed > intHet.maf.ase.pop.bed
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $samplecol;
+my $samplefil;
+my $tf = 0;
+
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'c=i'=>\$samplecol, 's=s'=>\$samplefil, 't=i'=>\$tf) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+open (SAMPL, $samplefil) || die "Cannot open $samplefil: $!";
+
+## variables
+my %sample2pop; ## sub-population/ethnicity
+my %sample2wor; ## world
+my $headerprocessed = 0;
+my %header2col;
+
+while (<SAMPL>)
+{
+	chomp;
+	s/\r?\n?$//;
+	
+	my @fields = split(/\t/, $_);
+	
+	if(!$headerprocessed)
+	{
+		LABEL:for my $header ('sample-id', 'population','world')
+		{
+			for (my $i=0;$i<@fields;$i++)
+			{
+				if($header eq $fields[$i])
+				{
+					$header2col{$header} = $i;
+					next LABEL;
+				}
+			}
+			
+			die("$header not found!: $!");
+		}
+		
+
+		$headerprocessed = 1;
+	}
+	else ## header processed
+	{
+		my $sampleid = $fields[$header2col{'sample-id'}];
+		$sample2pop{$sampleid} = $fields[$header2col{'population'}];
+		$sample2wor{$sampleid} = $fields[$header2col{'world'}];
+	}
+	
+}
+
+close(SAMPL);
+
+## read input
+while (<INPUT>)
+{
+	chomp;
+	s/\r?\n?$//;
+	
+	my @fields = split(/\t/, $_);
+	my $pops = '';
+	my $wors = '';
+	my %popctr;
+	my %worctr;
+	my @samples;
+	
+	## process samples if tf
+	if(!$tf)
+	{
+		@samples = split(/\;/, $fields[$samplecol-1]);
+	}
+	else
+	{
+		my @data_tf_sample = split(/\;/, $fields[$samplecol-1]);
+		
+		for(my $i=0;$i<@data_tf_sample;$i++)
+		{
+			my @stuff = split(/\_/, $data_tf_sample[$i]);
+			## sample = $stuff[2];
+			push(@samples, $stuff[2]);
+		}
+	}
+	
+	## process samples to populations
+	for my $sam (@samples)
+	{
+		## catch exception: sample not in list
+		if(!exists($sample2pop{$sam}))
+		{
+			$sample2pop{$sam} = 'NA';
+			$sample2wor{$sam} = 'NA';
+		}
+		else
+		{	
+			if($pops eq '')
+			{
+				$pops = $sample2pop{$sam};
+				$wors = $sample2wor{$sam};
+			}
+			else
+			{
+				$pops = $pops.";".$sample2pop{$sam};
+				$wors = $wors.";".$sample2wor{$sam};
+			}
+			
+			
+			## push into popctr
+			if(!exists($popctr{$sample2pop{$sam}}))
+			{
+				$popctr{$sample2pop{$sam}} = 1;
+				$worctr{$sample2wor{$sam}} = 1;
+			}
+			else
+			{
+				$popctr{$sample2pop{$sam}}++;
+				$worctr{$sample2wor{$sam}}++;
+			}
+		}
+	}
+	
+	## print for each line
+	print "$_\t$pops\t". keys( %popctr ) . "\t$wors\t". keys( %worctr ) . "\n";
+}
+
+close(INPUT);
+
+	

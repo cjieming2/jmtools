@@ -1,0 +1,136 @@
+#!/usr/bin/perl 
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+ wtccc_genotype2tg
+
+=head1 SYNOPSIS
+
+ wtccc_genotype2tg [options] <wtccc-genotype-filename>
+ 
+ Converts WTCCC2 genotype files into a partial pseudo-mk and tg files
+ 
+  
+=head1 DESCRIPTION
+
+=cut
+
+## global variables
+my $file_wtccc;
+my $file_rootname;
+my $file_mk;
+my $file_tg;
+my $num_samples;
+
+my @snps = ();
+my %snps_info = ();
+my %alleles = ();
+
+## option variables
+my $help;
+
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)  {
+    if ($help)  {
+        pod2usage(-verbose => 2);
+    }
+    else  {
+        pod2usage(1);
+    }
+}
+
+$file_wtccc = $ARGV[0];
+$file_rootname = $ARGV[0];
+$file_rootname =~ s/\.[^.]*$//;
+$file_mk = $file_rootname . '.mk';
+$file_tg = $file_rootname . '.tg';
+
+## reading the map file to extract relevant information
+open(iFILE, "< $file_wtccc") or die "Can't read wtccc genotype file: $file_wtccc: $!\n";
+open(oMKFILE, "> $file_mk") or die "Can't write map file: $file_mk: $!\n";
+open(oTGFILE, "> $file_tg") or die "Can't write tg file: $file_tg: $!\n";
+
+my $header = <iFILE>;
+my $num_cols = scalar @{[split '\t', $header]};
+my $all_tg_missing = "\t-1" x ($num_cols - 1);
+chomp($header);
+$header=~s/^\s+/snp-id\t/;
+
+#print header row to TG and MK files
+print oTGFILE "$header";    
+print oMKFILE "snp-id\talleles";
+
+while(<iFILE>)  {
+    chomp;
+    $_=~s/;[\S]+//g;   #remove ";xxx" call rates following each genotypes
+
+
+    my @fields = split();    
+    die "Invalid num of columns (" . scalar(@fields) . ") at row $.\n" if($num_cols != scalar(@fields));
+
+    my @snp_alleles = ();
+    my $snp_alleles_text;
+    my $snp = shift @fields;
+
+    #Scan through each genotype of snp to obtain 2 non missing ("N") alleles if availble
+    foreach (@fields) {
+        my @alleles = split('');
+
+        foreach (@alleles) {
+            if ($_ ne 'N' && scalar(@snp_alleles) < 2) {
+                if (scalar(@snp_alleles) == 0 || $snp_alleles[0] ne $_) {
+                    push @snp_alleles, $_;
+                }
+            }
+        }
+        last if (scalar(@snp_alleles) == 2)
+    }
+
+    print oTGFILE "\n$snp";     #print snp-id (Col 1) to TG file
+
+    if (scalar(@snp_alleles) == 0) {    #missing for all genotypes
+        $snp_alleles_text = "n/a";
+        print oTGFILE $all_tg_missing;  #print -1 for all genotypes
+    }
+    else {
+        my $allele_b;
+        my $genotype;
+
+        if(scalar(@snp_alleles) == 1) {
+            $allele_b = $snp_alleles[0];
+            $snp_alleles_text = "0/$snp_alleles[0]";
+        }
+        else {
+            @snp_alleles = sort @snp_alleles;    
+            $allele_b = $snp_alleles[1];
+            $snp_alleles_text = "$snp_alleles[0]/$snp_alleles[1]";
+        }
+
+        foreach (@fields)  {
+            $genotype = 0;
+            
+            if (/N+/i) {
+                $genotype = -1;
+            }
+            else {
+                if (substr($_, 0, 1) eq $allele_b) {$genotype++;}
+                if (substr($_, 1, 1) eq $allele_b) {$genotype++;}
+            }
+            print oTGFILE "\t$genotype";
+        }
+    }
+    print oMKFILE "\n$snp\t$snp_alleles_text";
+}
+print oTGFILE "\n";
+print oMKFILE "\n";
+close iFILE;
+close oTGFILE;
+close oMKFILE;
+

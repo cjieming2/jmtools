@@ -1,0 +1,37 @@
+Sender: LSF System <lsfadmin@c04n01>
+Subject: Job 68453: <gzip -c back.root > back.root.gz> in cluster <grace> Done
+
+Job <gzip -c back.root > back.root.gz> was submitted from host <c04n08> by user <jc2296> in cluster <grace>.
+Job was executed on host(s) <c04n01>, in queue <gerstein>, as user <jc2296> in cluster <grace>.
+</home/fas/gerstein/jc2296> was used as the home directory.
+</home/fas/gerstein/jc2296/jmtools/alex_cnvScripts> was used as the working directory.
+Started at Wed Sep 10 11:13:14 2014
+Results reported on Wed Sep 10 11:16:01 2014
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+gzip -c back.root > back.root.gz
+------------------------------------------------------------
+
+Successfully completed.
+
+Resource usage summary:
+
+    CPU time :                                   165.47 sec.
+    Max Memory :                                 3 MB
+    Average Memory :                             3.00 MB
+    Total Requested Memory :                     -
+    Delta Memory :                               -
+    Max Processes :                              3
+    Max Threads :                                4
+
+The output (if any) follows:
+
+
+
+PS:
+
+Read file <gzip.err> for stderr output of this job.
+

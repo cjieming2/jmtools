@@ -1,0 +1,107 @@
+#!/usr/bin/perl -w
+
+use warnings;
+use strict;
+use fralib;
+use Getopt::Long;
+use File::Basename;
+use Pod::Usage;
+use File::Copy;
+
+=head1 NAME
+
+file2dir
+
+=head1 SYNOPSIS
+
+ file2dir [options] <list>	
+
+  -h                     help
+  -k                     the key/header that the files are under in the file
+  -d                     directory name
+                         default: replaces extension of 
+                         <affymetrix-call-file>	with tg
+  -f                     flag 0 for copy, 1 for move; default is 0
+  list                   list of files to be put in stipulated folder
+                         must contain a header
+       
+ example: file2dir -k affy-lab-id -d geno-cel-files geno.list
+       
+ Copies a list of files into stipulated directory
+       
+=head1 DESCRIPTION
+
+=cut
+
+my $help = 0;
+my $head;
+my $dir;
+my $headerProcessed = 0;
+my $fileList;
+my $col = 0;
+my $flag = 0;
+my $found = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'k=s'=>\$head, 'd=s'=>\$dir, 'f=i'=>\$flag) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+$fileList = $ARGV[0];
+mkdir($dir) || die "Cannot create directory $dir: $!";
+
+open(IN, $fileList) || die "Cannot open $fileList\n";
+
+while (<IN>)
+{
+	if(!$headerProcessed) 
+	{
+		my @fields = split(/\t/, $_);
+		chomp @fields;
+		
+		# finds the column num of the stipulated column with filenames
+		for (my $i=0;$i<@fields;$i++)
+		{
+			if ($fields[$i] eq $head)
+			{
+				$col = $i;
+				$found = 1;
+			}			
+		}
+		
+		if (!$found)
+		{
+			rmdir($dir) || die "Directory cannot be removed!! $!";
+			die "header in option -k not found in file!!: $!";
+		}
+		$headerProcessed = 1;
+	}
+	else # if header processed
+	{
+		my @fields = split(/\t/, $_);
+		chomp @fields;
+		
+		# copy genotype file to that folder
+		if($flag == 1)
+		{
+			move("$fields[$col]","$dir/$fields[$col]") or die "Copy failed: $!";
+		}
+		else
+		{
+			copy("$fields[$col]","$dir/$fields[$col]") or die "Move failed: $!";		
+		}
+		
+	}
+} 
+
+close(IN);

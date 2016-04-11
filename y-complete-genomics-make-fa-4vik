@@ -1,0 +1,263 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+y-complete-genomics-make-fa-4vik
+
+=head1 SYNOPSIS
+
+ y-complete-genomics-make-fa-4vik [options] <fastafile>
+
+  -h help
+     
+  -c contig file; the list of contigs (with positions) sequenced in complete genomics.
+     Requires (a) BEGIN and (b) end. Please ensure the beginning position is 1-based.
+     Obtain this file by grep-ing the chromosome, with num of cols < 5.
+     
+  -r a list of complete genomics within-contig positions, this should be 1-based as well.
+     Requires header of (a) start-pos and (b) end-pos and (c) alleleSeq.
+     Populates those unknown positions (eg ?) with N.
+     Please exclude ins, del under the 'vartype' col in this list
+  
+  <fastafile> fasta file; the reference NCBI FASTA file of the region or chromosome.
+  
+  This script creates a new FASTA from a list of complete genomics contig positions with a reference NCBI FASTA file.
+  Outputs a new FASTA file with 60 bases per line.
+     
+	This script does not CHECK for the order of the contigs;
+	it simply assumes they are in order. Please do a sort
+	before running this script.
+	
+  Example:
+     y-complete-genomics-make-fa-4vik -c contigs.txt -r within-contigs.txt chrY.fa
+     
+  Outputs: new-<filename>.fa
+       
+=head1 DESCRIPTION
+
+=cut
+
+## variables
+my $help;
+my $reffile;
+my $contigfile;
+
+## initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'r=s'=>\$reffile, 'c=s'=>\$contigfile) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## FASTA file (or string file if --string)
+my $fafile = $ARGV[0];
+open(FA, $fafile) || die "Cannot open $fafile";
+
+## output file
+my($name, $path, $ext) = fileparse($fafile, '\..*');
+my $ofile = "new-$name.fa";
+open(OUTPUT, ">$ofile") || die "Cannot open $ofile";
+
+###################################FAsTA##################
+## fasta global variables
+my $faheaderProcessed = 0;
+my %faheader2col;
+my @sequence=(); ## NCBI fasta sequence
+my $seqstartpos = 0;
+my $flag = 0;
+my @newseq=();
+
+## read FASTA file to obtain sequence
+ITER:while(<FA>)
+{
+	chomp $_;
+	my @line = split(//,$_);
+	
+	if(($line[0] eq ">") && ($flag==0))
+	{
+		$flag = 1;
+		next ITER;
+	}
+	elsif(($line[0] ne ">") && ($flag==0))
+	{
+		die "FASTA file does not have title that starts with '>'!:$!";
+	}
+	else
+	{
+		push(@sequence, @line);
+	}
+}## end of one line of fa file
+close(FA);
+
+###################################contig###################
+## contig file
+open(CONTIGS, $contigfile) || die "Cannot open $contigfile:$!";
+
+## variables
+my $conheaderProcessed = 0;
+my %conheader2col;
+
+while(<CONTIGS>)
+{
+	my @fields = split(/\t/,$_);
+	chomp @fields;
+	
+	if(!$conheaderProcessed) ## header
+	{
+		ITERCON:for(my $i=0;$i<@fields;$i++)
+		{
+			if($fields[$i] eq 'begin')
+			{
+				$conheader2col{'begin'} = $i;
+				next ITERCON;
+			}
+			elsif($fields[$i] eq 'end')
+			{
+				$conheader2col{'end'} = $i;
+				next ITERCON;
+			}
+		}
+		
+		$conheaderProcessed = 1;
+	}
+	else ## non-header
+	{
+		my $startpos = $fields[$conheader2col{'begin'}];
+		my $endpos = $fields[$conheader2col{'end'}];
+		my $contiglength = $endpos - $startpos + 1;
+		
+		## exceptions
+		if($contiglength <= 0)
+		{
+			die "Start-pos= $startpos is beyond end-pos= $endpos: $!";
+		}
+		else
+		{
+			for(my $i=$seqstartpos;$i<($startpos-1);$i++)
+			{
+				$sequence[$i] = 'N';
+			}
+			
+			$seqstartpos = $endpos;
+		} ## non-exceptions, else
+	} ## non-header, else
+} ## each line of contigfile ,while
+
+for(my $i=$seqstartpos; $i<@sequence; $i++)
+{
+	$sequence[$i] = 'N';
+}
+
+close(CONTIGS);
+
+###################################within-contig############
+## ref file
+open(REFER, $reffile) || die "Cannot open $reffile:$!";
+
+## global input variables
+my $headerProcessed = 0;
+my %header2col;
+
+## input reference panel of probes
+while(<REFER>)
+{
+	my @fields = split(/\t/,$_);
+	chomp @fields;
+	
+	if(!$headerProcessed) ## header
+	{		
+		ITER:for(my $i=0;$i<@fields;$i++)
+		{
+			if($fields[$i] eq 'start-pos')
+			{
+				$header2col{'start-pos'} = $i;
+				next ITER;
+			}
+			elsif($fields[$i] eq 'end-pos')
+			{
+				$header2col{'end-pos'} = $i;
+				next ITER;
+			}
+			elsif($fields[$i] eq 'alleleSeq')
+			{
+				$header2col{'alleleSeq'} = $i;
+				next ITER;
+			}
+		}
+		$headerProcessed = 1;
+	}
+	else ## else non-header
+	{
+		my $startpos = $fields[$header2col{'start-pos'}];
+		my $endpos = $fields[$header2col{'end-pos'}];
+		my $contiglength = $endpos - $startpos + 1;
+		my @alleleseq = split(//,$fields[$header2col{'alleleSeq'}]);
+		chomp @alleleseq;
+		
+		## exceptions
+		if($contiglength <= 0)
+		{
+			die "Start-pos= $startpos is beyond end-pos= $endpos: $!";
+		}
+		else
+		{
+			if((scalar @alleleseq == 1) && ($alleleseq[0] eq '?'))
+			{
+				for(my $i=$startpos;$i<=$endpos;$i++)
+				{
+					$sequence[($i-1)] = 'N';
+				}
+			}
+			else
+			{
+				if(scalar @alleleseq != $contiglength)
+				{
+					die "Length of alleleSeq @alleleseq not the same as contig length with start-pos=$startpos and end-pos=$endpos: $!";
+				}
+				else
+				{				
+					for(my $i=0;$i<$contiglength;$i++)
+					{
+						$sequence[($startpos+$i-1)] = $alleleseq[$i];
+					}
+				} ## exception length of seq not same as contig length
+			} ## when no-call write N else write the seq
+		} ## exception where length not equal or endpos<startpos
+	} ## else non-header
+} ## end of one line of reference input panel of probes
+
+close(REFER);
+
+###################################OUTPUT############
+## print to fasta format; 60 characters per line (0-59)
+## print output fasta header
+print OUTPUT "\>$ofile\n";
+
+for(my $i=0;$i<@sequence;$i++)
+{	
+	if(($i == 0) || (($i % 60)!=0)) ## if $i is not divisible by 60 keep printing
+	{
+		print OUTPUT "$sequence[$i]";
+	}
+	else ## if it is divisible by 60
+	{
+		print OUTPUT "\n$sequence[$i]";
+	}
+}
+print OUTPUT "\n";
+close(OUTPUT);

@@ -1,0 +1,93 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+vcfsplitchrom
+
+=head1 SYNOPSIS
+
+ vcfsplitchrom [options] <vcf-file>	
+
+  -h help
+  split VCF by chromosome (CHROM field)
+  
+  -p prefix for output file; extension is VCF
+  
+  OUTPUT: VCF files with header
+    
+  Example:
+     vcfsplitchrom -p vcfsplit my.vcf
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $prefix = 'vcfsplit';
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'p=s'=>\$prefix) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+# variables
+my $header = '';
+my %CHR2LINES;
+
+# read file
+LINE: while (<INPUT>)
+{
+	chomp $_;
+	
+	## if header keep in variable
+	if($_ =~ m/^#/)
+	{
+		if($header eq ''){	$header = $_;		}
+		else{ 	$header = $header . "\n" . $_;		}
+		next;
+	}
+	else ## if not header
+	{
+		my @chr = split(/\t/, $_, 2);
+		
+		if(!exists($CHR2LINES{$chr[0]})){	 $CHR2LINES{$chr[0]} = $_; 	}
+		else{ 	$CHR2LINES{$chr[0]} = $CHR2LINES{$chr[0]} . "\n" . $_;	}
+	}
+}
+
+close(INPUT);
+
+## print to output
+for my $chrom (sort keys %CHR2LINES)
+{
+	my $ofile = $prefix . "." . $chrom . "." . $ifile . ".vcf";
+
+	open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+	print OUTPUT $header . "\n";
+	print OUTPUT $CHR2LINES{$chrom} ."\n";
+	
+	close(OUTPUT); 
+}
+

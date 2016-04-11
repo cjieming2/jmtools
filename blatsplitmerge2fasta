@@ -1,0 +1,379 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+blatsplitmerge2fasta
+
+=head1 SYNOPSIS
+
+ blatsplitmerge2fasta [options] <bak-blat-file> 	
+
+  -h help
+  -o output name 1; name of first sequence eg human-ref-chrY
+  -p output name 2; name of second sequence eg chimp-chrY
+  -i insert a non-numerical character in between sequences
+  --splitonly
+  if this option is toggled, it will only split the alignment into 2 files of the alignments in that order and not 2 concatenated fasta files.       
+  --comparative
+  if this option is toggled, it will split the alignment into 2 fasta files, positions based on the first sequence.
+  --splitcompare
+  if this option is toggled, it will split the alignment and concatenate into 2 fasta files, i.e. both fasta files will contain dashes.
+  
+  -e only used in --comparative and --splitcompare; provide ending position, in case last position not in alignment (very probable). for --splitcompare, the dashes in sequences is not counted.
+  
+  This script splits up the 2 (only 2, for now) blat alignments and merges them into a fasta file of the entire chromosome, by inserting a nonnumerical character of the users choice for missing spaces.
+  This option recognises the header:
+  4843 chrY 17031820 17144594 chrY 21916122 22029012 + 10210030 
+  as ???? chr* (like blatsplit) and then converts them to fastalike files with dashes.
+  
+  
+  NOTE for ALL the options:
+  This script does not CHECK for the order of the contigs or sequences;
+  it simply assumes they are in order. Please do a sort before running this script.
+ 
+  This script also assumes the sequence is from same chromosome. Might add in a functionality CHECK later.
+	
+  Example:
+     blatsplitmerge2fasta -o jm-human-ref-chrY -p jm-chimp-chrY -i ? -e 20000 jm.bak
+     blatsplitmerge2fasta -o jm-human-ref-chrY -p jm-chimp-chrY -i ? -e 20000 jm.bak --splitonly
+     blatsplitmerge2fasta -o jm-human-ref-chrY -p jm-chimp-chrY -i ? -e 20000 jm.bak --comparative
+  
+  OUTPUT: 
+  Append .falike in the output names stipulated. It is not fasta exactly, because it contains dashes and other characters.
+  
+  Replaces the previous blatsplit (splitonly) and blatsplitmerge2fasta
+       
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $name1 = '';
+my $name2 = '';
+my $insert = '';
+my $splitonly = '';
+my $comparative = '';
+my $endme = 0;
+my $splitcompare = '';
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'e=i'=>\$endme, 'comparative'=>\$comparative, 'splitonly'=>\$splitonly, 'i=s'=>\$insert, 'o=s'=>\$name1, 'p=s'=>\$name2) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+if($name1 eq '' || $name2 eq '')
+{
+	die "Please provide input options -o and -p:$!";
+}
+if($insert eq '' )
+{
+	die "Please provide non-numerical character to insert -i"
+}
+if(($comparative && $endme == 0) || (!$splitonly && $endme == 0))
+{
+	warn "Please provide end position -e if you know it, else it might not be same length as reference.";
+}
+
+## input files
+my $ifile = $ARGV[0];
+
+open (INPUT, $ifile) || die "Cannot open $ifile:$!";
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+
+## output files - if there is a header there will be a file with 2 lines: header+seq1 OR seq2
+my $ofile1;
+my $ofile2; 
+
+if($splitonly)
+{
+	$ofile1 = "splitonly-$ifile-$name1.falike";
+	$ofile2 = "splitonly-$ifile-$name2.falike";
+}
+elsif($comparative)
+{
+	$ofile1 = "comparative-$ifile-$name1.falike";
+	$ofile2 = "comparative-$ifile-$name2.falike";
+}
+elsif($splitcompare)
+{
+	$ofile1 = "splitcompare-$ifile-$name1.falike";
+	$ofile2 = "splitcompare-$ifile-$name2.falike";
+}
+else
+{
+	$ofile1 = "$ifile-$name1.falike";
+	$ofile2 = "$ifile-$name2.falike";
+}
+
+		
+open(OUTPUT1, ">$ofile1") || die "Cannot open $ofile1:$!";
+open(OUTPUT2, ">$ofile2") || die "Cannot open $ofile2:$!";
+		
+my $flag = 1;
+my $chr1 = '';
+my $startpos1 = 0;
+my $endpos1 = 0;
+my $chr2 = '';
+my $startpos2 = 0;
+my $endpos2 = 0;
+
+my @newseq1=();
+my @newseq2=();
+my $dashnum1 = 0; ## counts the num of dashes in one segment; different from the dashctr keeps counting as it goes along
+my @sequence1=();
+my @sequence2=();
+
+## read BLAT file to obtain sequences
+ITER:while(<INPUT>)
+{
+	## variables
+	my %head2col;
+	my $count = 1; ## count 1 1st seq chr; count 2 2nd seq chr
+	my $dashctr1 = 0; ## counts number of dash in a sequence
+	
+	chomp $_;
+	s/ +/ /g;
+	
+	next if /^(\s)*$/; ## skip blank lines
+	
+	my @line = split(//,$_);
+	
+	if($line[0] =~ m/\d{1}/i) ################## header
+	{
+		my @fields = split(/ /, $_);
+		
+		for (my $i=0; $i<@fields; $i++)
+		{
+			if($fields[$i] =~ m/(chr)/i)
+			{
+				$head2col{$count} = $i;
+				$count++; ## should have only 1 and 2 
+			}
+			elsif($fields[$i] =~ m/(\-|\+){1}/i)
+			{
+				$head2col{'strand'} = $i;
+			}
+		} ## iterate thru the fields of the header
+				
+		$chr1 = $fields[$head2col{'1'}];
+		$startpos1 = $fields[$head2col{'1'}+1];
+		$endpos1 = $fields[$head2col{'1'}+2];
+		$chr2 = $fields[$head2col{'2'}];
+		$startpos2 = $fields[$head2col{'2'}+1];
+		$endpos2 = $fields[$head2col{'2'}+2];
+		#print "$chr1|$startpos1|$endpos1|\n$chr2|$startpos2|$endpos2|\n"; ##debug
+		
+		if($splitonly)
+		{
+			print OUTPUT1 "\>$name1 $fields[0] $fields[$head2col{'1'}] $fields[$head2col{'1'}+1] $fields[$head2col{'1'}+2] \+\n";
+			print OUTPUT2 "\>$name2 $fields[0] $fields[$head2col{'2'}] $fields[$head2col{'2'}+1] $fields[$head2col{'2'}+2] $fields[$head2col{'strand'}]\n";
+		}
+		
+		
+		next ITER;
+	} ## if in the header
+	elsif($line[0] =~ m/[a-zA-Z]{1}/i) ## sequence, might have other junk so use elsif
+	{
+		if($flag == 1) ## seq 1
+		{
+			if($splitonly) ##--splitonly
+			{
+				printout(*OUTPUT1, @line);
+				print OUTPUT1 "\n";
+				$flag++;
+				next ITER;
+			}
+			else
+			{
+				@sequence1 = split(//,$_);				
+				$flag++;
+				next ITER;
+			}
+		}
+		elsif($flag == 2) ## seq 2
+		{
+			if($splitonly) ##--splitonly
+			{
+				printout(*OUTPUT2, @line);
+				print OUTPUT2 "\n";
+				## file closes with 2 aligned sequences being read
+				$flag = 1;
+				next ITER;
+			}
+			else
+			{
+				@sequence2 = split(//,$_);
+				$flag = 1;
+			}
+		}
+		else
+		{
+			die "There are more than one alignment in pairwise aligment BLAT.:$!";
+		}
+		
+		## copy to newseq
+		if($#sequence1 != $#sequence2) ## a check on the alignment length
+		{
+			warn "the 2 sequences of $_ has different lengths:$!";
+		}
+		
+		LETTER:for(my $i=0;$i<@sequence1;$i++)
+		{
+			if($sequence1[$i] eq '-') ## a dash in ONLY first seq
+			{
+				$dashctr1++;
+				
+				if($comparative) #--comparative
+				{
+					next LETTER;
+				}
+			}
+				
+			if ($comparative) #--comparative
+			{
+				my $newpos = $startpos1 -1 - $dashctr1 + $i;
+				$newseq1[$newpos] = $sequence1[$i];
+				$newseq2[$newpos] = $sequence2[$i];
+			}
+			else
+			{
+				my $newpos = $startpos1 -1 + $dashnum1 + $i;
+				
+				#print "$startpos1\+$dashnum1\+$i\=$newpos\n"; ##debug
+						
+				$newseq1[$newpos] = $sequence1[$i];
+				$newseq2[$newpos] = $sequence2[$i];
+				
+			} ## if not comparative
+		}
+		
+		$dashnum1 = $dashctr1 + $dashnum1;
+		
+	} ## if sequence line
+	else
+	{
+		next ITER;
+	}
+} ## one line in file
+
+
+if($splitonly)
+{
+	close(OUTPUT1);
+	close(OUTPUT2);
+	close(INPUT);
+	exit;
+}
+
+## printing
+for (my $i=0; $i<@newseq1; $i++)
+{
+	if(!defined($newseq1[$i]))
+	{
+		$newseq1[$i] = $insert;
+	}
+	
+	if(!defined($newseq2[$i]))
+	{
+		$newseq2[$i] = $insert;
+	}
+}
+
+#my $newstart = $#newseq1 + 1;
+my $newstart = $endpos1 + $dashnum1; ## -1 (for array) then +1 (1 char after the last position)
+my $newend = $endme + $dashnum1;
+
+if($endme != 0) # endpos provided
+{
+	for(my $i=$newstart; $i<$newend; $i++)
+	{
+		$newseq1[$i] = $insert;
+		$newseq2[$i] = $insert;
+	}
+}
+
+
+## output
+## print to fasta format; 60 characters per line (0-59)
+## print output fasta header
+print OUTPUT1 "\>$name1\n";
+print OUTPUT2 "\>$name2\n";
+printout(*OUTPUT1, @newseq1);
+printout(*OUTPUT2, @newseq2);
+print OUTPUT1 "\n";
+print OUTPUT2 "\n";
+
+close(OUTPUT1);
+close(OUTPUT2);
+close(INPUT);
+
+################################################################
+## printing
+sub printout
+{
+	my($OUTPUT, @seqtoprint) = (shift, @_[0..$#_]);
+	
+	for(my $i=0;$i<@seqtoprint;$i++)
+	{	
+		if(($i == 0) || (($i % 60)!=0)) ## if $i is not divisible by 60 keep printing
+		{
+			print $OUTPUT "$seqtoprint[$i]";
+		}
+		else ## if it is divisible by 60
+		{
+			print $OUTPUT "\n$seqtoprint[$i]";
+		}
+	}
+}
+
+################################################################
+## gives reverse complement
+sub complement
+{
+	my $nucleo = shift;
+	
+	if($nucleo =~ m/(A)/i)
+	{
+		$nucleo = 'T';
+	}
+	elsif($nucleo =~ m/(C)/i)
+	{
+		$nucleo = 'G';
+	}
+	elsif($nucleo =~ m/(T)/i)
+	{
+		$nucleo = 'A';
+	}
+	elsif($nucleo =~ m/(G)/i)
+	{
+		$nucleo = 'C';
+	}
+	elsif($nucleo =~ m/(-)/)
+	{
+		## doesnt matter
+	}
+	else
+	{
+		warn "$nucleo present and ignored";
+	}
+	
+	return $nucleo;
+}

@@ -1,0 +1,83 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+findDup
+
+=head1 SYNOPSIS
+
+findDup <filename>
+
+	--head   boolean; 1 if header is present (default), 0 otherwise
+	-c       field number; default is first column
+	
+	Example:
+		      findDup --head 1 -c 6 geno.txt
+	
+  geno.txt file must be tab-delimited and sorted.
+  
+=head1 DESCRIPTION
+
+=cut
+
+# options variables
+my $help = 0;
+my $head = 1;
+my $column = 1;
+
+# initialise bundling
+Getopt::Long::Configure ("bundling");
+
+if(!GetOptions ('h'=>\$help, 'head=i'=>\$head, 'c=i'=>\$column) || scalar(@ARGV)==0)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+##### input file
+my $ifile = $ARGV[0];
+open(INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## variables
+my %storage;
+
+LINE: while (<INPUT>)
+{
+	if ($head ==1)
+	{
+		next LINE;
+	}
+	else
+	{
+		chomp $_;
+		my @f = split(/\t/, $_);
+		
+		$storage{$_} = $f[$column-1];
+		
+		## push into an array that is named the 'value' of the hash storage
+		push @{$storage{$_}}, $_;
+	}
+}
+
+foreach my $key (keys %storage)
+{
+	if (@{$storage{$key}} > 1)
+	{
+		print @{$storage{$key}};
+	}
+}
+
+close(INPUT);

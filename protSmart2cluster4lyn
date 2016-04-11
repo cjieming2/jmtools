@@ -1,0 +1,153 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use jmlib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+protSmart2cluster4lyn
+
+=head1 SYNOPSIS
+
+ protSmart2cluster4lyn [options] <file.prot>
+
+	-o optional; output file name; default is <file>.prot.new
+	-t gap size threshold; if gap size exceeds this number, considered a cluster; default is 10
+	
+  takes in a .prot file produced from fastaSmart2tsv4lyn, and produce a .prot.new file 
+  where a line of 9TPR in .prot can be 3 lines of 3TPR .prot.new ('new_motifNum')
+  Looks for the following fields:
+  1) protein-id
+  2) organism-name
+  3) length
+  4) motifNum
+  5) gaps
+  
+  It adds a new column 'new_motifNum' to the file.
+  
+  Example:
+    protSmart2cluster4lyn -o jm.prot.new jm.prot
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $ifile;
+my $ofile = 0;
+my $headerProcessed = 0;
+my %header2col;
+my $threshold = 10;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'o=s'=>\$ofile, 't=i'=>\$threshold) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+$ifile = $ARGV[0];
+open (IN, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+if($ofile eq 0)
+{
+	my($name, $path, $ext) = fileparse($ifile, '\..*');
+	$ofile = "$name.prot.new";
+}
+else{}
+
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+# output header
+print OUTPUT "protein-id\torganism-name\tdomain";
+print OUTPUT "\tstart-end\tlength\tmotifNum\tgaps";	
+print OUTPUT "\tsource\tprotein-sequence\tcomments";
+print OUTPUT "\tnew_motifNum\n";
+	
+## loop .prot file
+while(<IN>)
+{
+	chomp $_;
+	
+	# variables
+	my @fields = split(/\t/,$_);
+	my $motifcount = 0;
+	my @clusters;
+	my $new_motifnum = 0;
+	
+	# process header
+	if(!$headerProcessed)
+	{
+		HEAD: for my $header ('protein-id','organism-name','length','motifNum','gaps')
+		{
+			for (my $i=0;$i<@fields;$i++) 
+			{
+				if($fields[$i] eq $header)
+				{
+					$header2col{$header} = $i;
+					next HEAD;
+				}
+			}
+			die "Cannot find $header:$!";
+		}
+		
+		$headerProcessed = 1;
+	}
+	else # process non-header
+	{
+		my @gaps   = split(/\;/,$fields[$header2col{'gaps'}]);
+		my @lengths = split(/\;/,$fields[$header2col{'length'}]);
+		
+		for (my $i=0;$i<@lengths;$i++)
+		{
+			$motifcount++;
+			
+			if($i <= $#gaps)
+			{
+				if($gaps[$i] > $threshold)
+				{
+					push(@clusters,$motifcount);
+					$motifcount = 0;
+				}
+			}
+		}
+		push(@clusters,$motifcount);
+		
+		#print join('|',@clusters)."\n"; ##debug
+		# print the output
+		if(scalar(@clusters) == 1)
+		{
+			print OUTPUT $_;
+			print OUTPUT "\t$fields[$header2col{'motifNum'}]\n";
+		}
+		else
+		{
+			for (my $k=0;$k<@clusters;$k++)
+			{
+				print OUTPUT $_;
+				print OUTPUT "\t$clusters[$k]\n";
+			}
+		}
+		
+	}
+	
+}## end of one line of fa file
+	
+close (IN);
+close (OUTPUT);

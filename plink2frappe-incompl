@@ -1,0 +1,240 @@
+#!/usr/bin/perl -w
+
+use warnings;
+use strict;
+use fralib;
+use Getopt::Long;
+use Pod::Usage;
+use File::Copy;
+use Cwd;
+
+=head1 NAME
+
+plink2frappe
+
+=head1 SYNOPSIS
+
+plink2frappe [options]	
+
+  -h      Displays this help page
+  -i      maximum number of iterations on FRAPPE
+  -s      number of samples/individuals
+  -M      number of snps
+  -N      number of intermediate files to be output (at least 1)
+  -k      Set the minimum and/or maximum value of K required in the frappe input file.
+          Notation: 
+          i-j for a range of values from i to j
+          i,j for single values, separated by a comma
+          i a single value is allowed.
+          
+  -p      (optional)
+          0 (default) or 1; Outputs shell script for qsub with input name
+  			
+  example:
+          plink2frappe -i 10000 -M 20 -s 28 -N 0 -k 2-5 -p 1 geno-cut.ped
+	 
+  Outputs the input files for FRAPPE as frapParam-2.txt
+  The following parameters are assumed:
+  a) IndividualFile = NONE
+  b) printP = 0
+  c) step = 0
+  
+  Note also that for the shell script for the new cluster, the following are assumed:
+  a) nodes=compute-0-10.local
+  b) ncpus=8
+  
+  Endure that the input genotype file is in the current directory
+  
+=head1 DESCRIPTION
+
+=cut
+
+# option variables
+my $help = 0;
+my $maxIter = 0;
+my $numSamples = 0;
+my $numSnps = 0;
+my $numInterm = 1;
+my $genoFile;
+my $k = 0;
+my $script = 0;
+my $needWrap = 1;
+
+# command line error handling
+# initialize options
+Getopt::Long::Configure ('bundling');
+
+
+GetOptions ('h'=>\$help, 'i=i'=>\$maxIter, 's=i'=>\$numSamples, 'M=i'=>\$numSnps, 
+            'N=i'=>\$numInterm, 'k=s'=>\$k, 'p:i'=>\$script);
+            
+# note that in some versions k=i{1,2} not valid; is k=i only but passed into array
+if ($help)
+{
+    pod2usage(-verbose => 2);
+}
+
+$genoFile = $ARGV[0];
+
+if (($maxIter==0)||($genoFile eq '0')||($numSamples==0)||($numSnps==0)||($k eq 0)||!defined($genoFile))
+{
+	die "Lack of parameters!: $!";
+}
+
+# if there is only one value of K
+# comments are in else{}
+if($k =~ m/^\d+$/)
+{
+	my $dir = "frappeK$k";
+	mkdir($dir) || die "Cannot create directory $dir: $!";
+	
+	# copy genotype file to that folder
+	copy("$genoFile","$dir/$genoFile") or die "Copy failed: $!";
+	
+	genFile($maxIter, $numSamples, $numSnps, $numInterm, $genoFile, $dir, $k);
+	
+	if ($script)
+	{
+		sh($dir, $k, $numSamples, $numSnps);		
+	}
+}
+else # k is not a single value
+{
+	# k is a range
+	if ($k =~ m/\d+(-)\d+/)
+	{
+		my @items=split("-",$k);
+		chomp @items;
+		
+		foreach my $i ($items[0]..$items[1])
+		{
+			# creates the directory for the Ks
+			my $dir = "frappeK$i";
+			mkdir($dir) || die "Cannot create directory $dir: $!"; 
+		
+			# copy genotype file to that folder
+			copy("$genoFile","$dir/$genoFile") or die "Copy failed: $!";
+			
+			# generate frappe files
+			genFile($maxIter, $numSamples, $numSnps, $numInterm, $genoFile, $dir, $i);
+		
+			# generate PBS shell scripts
+			if ($script)
+			{
+				sh($dir, $i, $numSamples, $numSnps);
+			
+				if ($needWrap)
+				{
+					my @k = ($items[0]..$items[1]);
+					# generate 1 wrapper qsub shell script to submit all the PBS scripts
+					wrap(@k);
+				
+					$needWrap = 0;
+				}		
+			}
+		}
+		
+	}
+	# single numbers comma-delimited
+	elsif($k =~ m/\d+(,)\d+/) 
+	{
+		my @items = split(",",$k);
+		chomp @items;
+		
+		foreach my $i (@items)
+		{
+			# creates the directory for the Ks
+			my $dir = "frappeK$i";
+			mkdir($dir) || die "Cannot create directory $dir: $!"; 
+		
+			# copy genotype file to that folder
+			copy("$genoFile","$dir/$genoFile") or die "Copy failed: $!";
+			
+			# generate frappe files
+			genFile($maxIter, $numSamples, $numSnps, $numInterm, $genoFile, $dir, $i);
+		
+			# generate PBS shell scripts
+			if ($script)
+			{
+				sh($dir, $i, $numSamples, $numSnps);
+				
+				if ($needWrap)
+				{
+					# generate 1 wrapper qsub shell script to submit all the PBS scripts
+					wrap(@items);
+				
+					$needWrap = 0;
+				}		
+			}
+		}
+	}
+	else
+	{
+		die "$k is not a valid parameter format!!";
+	}
+	
+}
+
+#-----------------------------------------------------------------------
+########################################################################
+# this function generates the frappe input files
+sub genFile
+{
+	my ($maxIter, $numSamples, $numSnps, $numInterm, $genoFile, $dir, $k) 
+			= ($_[0], $_[1], $_[2], $_[3], $_[4], $_[5], $_[6]);
+	
+	# put ofile into that direc
+	my $ofile = "$dir/frapParam$k.txt";
+	open(OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+	print OUTPUT "MaxIter=  $maxIter\nK      =  $k\nM      = $numSnps\n".
+	             "I      =  $numSamples\nNout   =  $numInterm\nstep   =  0\n".
+	             "GenotypeFile  = \"$genoFile\"\nIndividualFile = NONE\nprintP  = 0\n";
+	close(OUTPUT);
+}
+
+########################################################################
+# this function generates the shell script
+sub sh
+{
+	my ($dir, $k, $numSamples, $numSnps) = ($_[0], $_[1], $_[2], $_[3]);
+#	my $x = 8;
+#	my $y = 8; 
+	my $cwd = cwd();
+	             
+#	if ($k < 8){ $y = 4; }
+#	else { $y =8; }
+			
+#	if ($x > 14){	$x = 8; }
+
+## only 1 CPU; CPU space related unless u can do parallel
+	my $sfile = "$dir/script-frappe$k.sh";
+	open (SCRIPT, ">$sfile") || die "Cannot open $sfile: $!"; 
+	print SCRIPT "#!\/bin\/sh\n#PBS -N jm-$numSamples"."sa-$numSnps"."snp-frappe$k\n#PBS -l nodes=compute-0-$k.local\n".
+	             "#PBS -l ncpus=1\n#PBS -V\n#PBS -o job$k.log\n#PBS -e job$k.err\n".
+	             "date\ncd $cwd\/frappeK$k\/\nfr64Singapore frapParam$k.txt\n".
+	             "date\n";
+	close(SCRIPT);
+#	$x++;
+}
+
+########################################################################
+# this function generates wrapper for the PBS shell scripts
+sub wrap
+{
+	my (@k) = (@_[0..$#_]);
+	my $cwd = cwd();
+
+	if ($#k == 0)
+	{
+		print "You do not need a wrapper PBS script for a single K value!";
+	}
+	else
+	{
+		my $wrapFile = "script-wrap$k[0]$k[$#k]-frappe.sh";
+		open (WRAP, ">$wrapFile") || die "Cannot open $wrapFile: $!";
+		my $numbers = join (" ", @k);
+		print WRAP "#!\/bin\/sh\nfor i in $numbers\ndo\n  cd $cwd\/frappeK\$i\n  qsub script-frappe\$i.sh\ndone\n";
+		close (WRAP);
+		chmod (0777, $wrapFile);
+	}
+}

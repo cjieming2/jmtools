@@ -1,0 +1,246 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+use Cwd;
+
+=head1 NAME
+
+fshear
+
+=head1 SYNOPSIS
+
+ alignedreads2fpkm4cbb752 [options] -r <exonlist> <inputfile>	
+
+  -h help
+  
+  INPUT:
+  -r provide an exon list in GTF format (tsv), where
+  col1 = chromosome
+  col4 = start (1-based)
+  col5 = end (1-based)
+  col9 = gene id; transcript id
+  
+  <inputfile>
+  SAM format
+  col2 = flag (use to signify reverse or forward)
+  col3 = chromosome
+  col4 = start (1-based; if col2=reverse or 16, this is the end)
+  col6 = number of bases mapped
+  
+    
+  OUTPUT:
+  fpkm-<inputfilename>
+  - prints only  
+  --> 'geneID'
+  --> 'exonLength'
+  --> 'numOfAlignedReads'
+  --> 'FPKM'
+  
+  Note that this assumes
+  (a) single-isoform genes (which is not true) -- this can be partially resolved by matching to 'transcriptID' instead of 'geneID'
+  (b) this only uses the total number of reads in the file given -- the entire genome should be fed instead of chromosome
+  (c) also it assumes that the col2 flag is only 0 and 16 (fwd and reverse only)
+  (d) not taking the CIGAR field (col6) into consideration when counting where it overlaps (might have introns, so might not be contiguous), instead uses sequence length
+  (e) There is a possibility that a same read span 2 genes!! Biologically, not possible, should use a 50% reciprocal to resolve this but not implemented here
+      - situation 1 : gene exons overlap
+      - situation 2 : they dont overlap but reads fall overlap 2 genes; the first gene is taken in this code regardless of how much of each gene is covered by read
+  
+  Example:
+     alignedreads2fpkm4cbb752 -r exons.gtf reads.sam
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $exonfile;
+my $help;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'r=s'=>\$exonfile) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input list of reads SAM
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+ 
+## exon list GTF
+open(EXON, $exonfile) || die "Cannot open $exonfile: $!";
+
+## output file
+my @filename = split(/\./,$ifile);
+pop(@filename);
+my $name  = join("\.",@filename);
+my $ofile = "fpkm-$name\.txt";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+print OUTPUT "geneName\texonLength\tnumOfAlignedReads\tFPKM\n";
+
+## print LOG
+my $logfile = "fpkm-$name\.log";
+open (LOG, ">$logfile") || die "Cannot open $logfile: $!";
+
+############## read exon list GTF ##############
+## exons GTF variables
+my %exon2gene;
+my %exonpositions;
+my %geneLen;
+
+while (<EXON>)
+{
+	chomp $_;
+	my @fields = split(/\t/,$_);
+	
+	my $exonchromosome = $fields[0];
+	my $exonstart 		 = $fields[3];
+	my $exonend				 = $fields[4];
+	
+	## parse gene id
+	$fields[8] =~ m/^gene_id \"(.*)\"\; transcript_id/; 
+	my $geneID     = $1;
+	
+	## calculate gene length, also notes if gene already present
+	if(!exists($geneLen{$geneID}))
+	{
+		$geneLen{$geneID} = $exonend - $exonstart + 1;
+	}
+	else
+	{
+		$geneLen{$geneID} = $geneLen{$geneID} + $exonend - $exonstart + 1;
+	}
+	
+	## for every EXON, associate the exon to a gene name
+	## for every EXON, initalize the genome for the number of reads
+	NEXTEXON:for (my $i=$exonstart;$i<=$exonend;$i++)
+	{
+		my $exonchrpos = $exonchromosome."-".$i;
+		
+		## if gene or geneS dont exist at that position
+		## NOTE: each position can have more than 1 gene associated? YES!
+		if(!exists($exon2gene{$exonchrpos}{$geneID})) 
+		{
+			$exon2gene{$exonchrpos}{$geneID} = 1;
+			$exonpositions{$exonchrpos} = 0;
+		}
+		else
+		{			
+		}
+	}
+		
+}
+
+## debug
+#for my $chropos (keys %exon2gene)
+#{
+#	for my $g (keys %{ $exon2gene{$chropos}})
+#	{
+#		print "$chropos,$exonpositions{$chropos},$g\n";
+#	}
+#}
+
+############## input file SAM reads ####################
+# for each read position, see if exon position exists
+# if yes, decode exon to gene, then add one to read count for gene, then skip to next read
+# ## example to use embryonic mouse 1700105P06Rik, Fam111a
+my $totalreadsct = 0;
+my $totalreadsct_0or16 = 0;
+my %gene2numReads;
+
+## initialize all genes in genelist using the genelist from gene length
+for my $mygene (keys %geneLen)
+{
+	$gene2numReads{$mygene} = 0;
+}
+
+## loop sam file of reads
+while(<INPUT>)
+{
+	chomp $_;
+	my @samfields = split(/\t/,$_);
+	
+	my $readname				= $samfields[0];
+	my $flag 					  = $samfields[1];
+	my $readchromosome  = $samfields[2];
+	my $readstart       = $samfields[3];
+	my $seq             = $samfields[9];
+	my $lenseq				  = length($seq);
+	
+	$totalreadsct++;
+	
+	## forward oriented 0 or reverse 16, the position represents left most
+	## admit read if either 0 or 16
+	if($flag == 0 || $flag == 16)
+	{
+		$totalreadsct_0or16++;
+		for(my $i=$readstart;$i<$readstart+$lenseq;$i++) ## note remove = sign 
+		{
+			my $readchrpos = $readchromosome."-".$i;
+			
+			
+			##debug same read spans 2 genes!
+			if($i>=8963189 && $i<= 8963264)
+			{
+				print LOG "$readchromosome\t$i\t$readname\tBASES\n"; 
+			}
+			
+			## if the position exists in an exon, decode exon 2 gene, read count add one to GENE
+			if(exists($exonpositions{$readchrpos}))
+			{			
+				## decode exon 2 gene
+				## since it is possible to have each exon position spanning 2 genes, 
+				## exon2gene hash is in the format A,B,C...				
+				for my $g3n3 (keys %{$exon2gene{$readchrpos}})
+				{
+					## add count to one gene
+					$gene2numReads{$g3n3}++;
+					print LOG "$readchromosome\t$i\t$readname\t$g3n3\t$gene2numReads{$g3n3}\n";
+				}
+				last; 
+				## so that it doesnt loop the bases once one overlap is found
+				## TO FIX: but cannot!! because there is a possibility that a same read span 2 genes!!??
+				## biologically, not possible, should use a 50% reciprocal but not implemented here
+			}
+		}
+	}
+	else
+	{
+		print "$readname flag not recognized currently = $flag - add?\n";
+	}
+}
+
+################# output ####################
+for my $gene (keys %geneLen)
+{
+	my $fpkm = $gene2numReads{$gene} / ( ($geneLen{$gene}/1000) * ($totalreadsct/(10**6)) );
+	print  OUTPUT "$gene\t$geneLen{$gene}\t";
+#	printf OUTPUT "%.1f\t",$gene2numReads{$gene};
+	printf OUTPUT "$gene2numReads{$gene}\t";
+	print  OUTPUT "$fpkm\n";
+		
+#		print "$gene -- $geneID2totalreads{$gene} / ( ($geneLen{$gene}/1000) * ($totalreadsct/10^6) )\n"; ##debug
+
+}
+
+print "totalreadsct (sam)        = $totalreadsct\n";
+print "totalreadsct with 0 or 16 = $totalreadsct_0or16\n";
+
+close(EXON);
+close(OUTPUT);
+close(INPUT);
+close(LOG);
+	

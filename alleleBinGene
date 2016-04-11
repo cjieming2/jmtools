@@ -1,0 +1,150 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+use POSIX;
+
+=head1 NAME
+
+alleleBinGene
+
+=head1 SYNOPSIS
+
+ alleleBinGene [options] 
+
+  -h help
+  -b num of bins; default = 10
+  -c gencode/regions BED file (4 cols) contains gene name in col4; 
+     needs to be sorted 
+     note that GTF is redundant so uniq first.
+  
+  <input>  SNP BED file that contain the following cols and contain genes that match those in file in -c
+  obtain this file by intersectBed of gencode and SNP file first: using
+  intersectBed -a interestingHets.snps.bed -b gencode.bed -wa -wb | sortByChr.sh - | uniq > interestingHets.min6.merged.snps.cds.bed
+ 	chr1    881626  881627  4       NA11994;NA20768;NA20810;NA20809 A;G;A;A chr1    881552  881666  NOC2L
+  
+  this separates a region/entity/body/gene (-c file) into bins and counts the number of SNPs in each bin (using the input SNP BED file)
+  works only on sorted BED
+ 
+  
+  Example:
+     alleleBinGene -c gencode.17.cds.sorted.bed interestingHets.min6.merged.snps.cds.bed > jm.txt
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $binNum = 10;
+my $gencodefile = '';
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'b=i'=>\$binNum, 'c=s'=>\$gencodefile) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## inputs
+my $snpfile = $ARGV[0];
+open (GENCODE, $gencodefile) || die "Cannot open $gencodefile: $!";
+open (SNP, $snpfile) || die "Cannot open $snpfile: $!";
+
+## gencode file
+my @GEN = <GENCODE>;
+my @SNP = <SNP>;
+close(GENCODE);
+close(SNP);
+
+chomp @GEN;
+chomp @SNP;
+my %gene2len; ## counts from gene start
+my %gene2ctr; ## counts from 0
+my %gene2pos; ## maps ctr to gene pos
+my %gene2bin;
+my %snp2bin;
+
+## process GEN
+## map a generic running ctr (gene2ctr) to each nucleotide in genomic position
+for(my $i=0;$i<@GEN;$i++)
+{
+	my ($gchr,$gstart,$gend,$ggene) = split(/\t/, $GEN[$i]);
+	$gchr =~ s/chr//;
+	
+	if(!exists($gene2len{$ggene}))
+	{
+		$gene2ctr{$ggene} = 0;
+		$gene2pos{$ggene}{0} = $gstart;
+		
+		for(my $i=$gstart+1;$i<$gend+1;$i++) # nonbed start = 1 based
+		{
+			$gene2len{$ggene}{$i} = 1;
+			$gene2ctr{$ggene}++;
+			$gene2pos{$ggene}{$gene2ctr{$ggene}} = $i;
+			
+			## debug 
+			#print "$ggene\t$gene2ctr{$ggene}=>$gene2pos{$ggene}{$gene2ctr{$ggene}}\t$gene2ctr{$ggene}\tpos=$i=>$gene2len{$ggene}{$i}\n";
+		}
+	}
+	else
+	{
+		for(my $i=$gstart+1;$i<$gend+1;$i++)
+		{
+			if(!exists($gene2len{$ggene}{$i}))
+			{
+				$gene2len{$ggene}{$i} = 1;
+				$gene2ctr{$ggene}++;
+				$gene2pos{$ggene}{$gene2ctr{$ggene}} = $i;
+				
+				## debug
+				#print "$ggene\t$gene2ctr{$ggene}=>$gene2pos{$ggene}{$gene2ctr{$ggene}}\t$gene2ctr{$ggene}\tpos=$i=>$gene2len{$ggene}{$i}\n";
+			}
+		}
+	}
+	
+}
+
+## bins
+for my $gene (keys %gene2len)
+{
+	my $geneSize = keys % { $gene2len{$gene} } ;
+	my $binSize = ceil($geneSize / $binNum);  ## counts bin size
+	my $ctr = 0;   																	 ## counts nucleotide
+	my $binctr = 1;																	 ## counts bin when reach bin size
+	
+	for(my $i=0;$i<$geneSize+1;$i++)
+	{
+			## gives you back the gstart position with $i
+			## gene2bin then designates which bin this is
+			## $gene2pos{$gene}{$i} is the original nucleotide position
+			$gene2bin{$gene}{$gene2pos{$gene}{$i}} = $binctr;
+			
+			## debug
+			#print "$gene->$i->$gene2pos{$gene}{$i}=$binctr\n";
+			
+			$ctr++;
+			if(($ctr+1) > $binSize){ $binctr++; $ctr = 0 }
+	}
+}
+
+
+## process SNP
+for (my $i=0;$i<@SNP;$i++)
+{
+	my ($schr,$sstart,$send,$info1,$info2,$info3,
+			$tchr,$tstart,$tend,$genename) = split(/\t/,$SNP[$i]);
+			
+	print "$SNP[$i]\t$gene2bin{$genename}{$send}\n";
+}

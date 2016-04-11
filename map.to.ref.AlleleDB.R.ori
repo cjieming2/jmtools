@@ -1,0 +1,123 @@
+## this script was adapted for AlleleDB peak conversion
+## requires copying to directory of use and renaming back to map.to.ref.AlleleDB.R
+#folder="/gpfs/scratch/fas/gerstein/jc2296/functional_datasets/peaks/allele_Peaks/wgEncodeUwTfbsGm12878CtcfStdAlnRep1.fastq.gz_paternal.narrowPeak.dir/"; setwd(folder)
+options(scipen=999)
+
+library("data.table")
+# has to be 1.8.9! 1.8.8 won't work. Please see:
+# http://stackoverflow.com/questions/16884613/fread-not-recognizing-a-bare-or-as-a-character-field
+library("GenomicRanges")
+
+args<-commandArgs(TRUE)
+if(length(args)==0){
+  print("No arguments supplied.")
+  ##supply default values
+  peak.file = "test.1_maternal.bowtie.id"
+  map.file = "chr1_NA12878.map"
+  mapped.file = "test.1_maternal.mapped.bowtie.id"
+  matpat = "MAT"
+}else{
+  for(i in 1:length(args)){
+    eval(parse(text=args[[i]]))
+  }
+}
+
+# peak.file = args[1]
+# map.file = args[2]
+# mapped.file = args[3]
+# matpat = args[4]
+
+
+# peak.file = "test.1_maternal.bowtie.id"
+# map.file = "chr1_NA12878.map"
+# mapped.file = "test.1_maternal.mapped.bowtie.id"
+# matpat = "MAT"
+
+# map.mat.to.ref <- function(peak.file = "test.1_maternal.bowtie", 
+#   						map.file = "chr1_NA12878.map", 
+# 							mapped.file = "test.1_maternal.mapped.bowtie")
+# {
+# peak.file is the output from bowtie, for one specific chromosome, when reads were aligned to maternal genome.
+# map.file is the file containing the ref/pat/mat blocks for the specific chromosome. AlleleSeq creates this file.
+# mapped.file is the function's output, containing the reads in peak.file and their location in the reference genome.
+
+  ## peak file
+  peak.dt <- fread(peak.file)
+  setnames(peak.dt, old = c("V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9","V10","V11"), 
+           new = c("read.id","chr", "start", "end", "V4", "V5", "V6", "V7", "V8","V9","V10"))
+  
+  cat(paste0(nrow(peak.dt), " reads in this chromosome.\n"))
+  
+  ## 0-based start
+  reads.GR <- GRanges(seqnames = peak.dt$chr, 
+                      ranges = IRanges(start = peak.dt$start,
+                                       end = peak.dt$end), 
+                      strand = "+",
+                      read.id = peak.dt$read.id)
+
+  ### map file
+  map.dt <- fread(map.file)
+  setnames(map.dt, old = c("#REF", "PAT", "MAT"),
+           new = c("ref", "pat", "mat"))
+  
+  ## mat or pat
+  if(matpat == "MAT")
+  {
+    mat.block.starts <- map.dt$mat[map.dt$mat > 0]
+    ref.block.starts <- map.dt$ref[map.dt$mat > 0]
+  }else if(matpat == "PAT")  {
+    mat.block.starts <- map.dt$pat[map.dt$pat > 0]
+    ref.block.starts <- map.dt$ref[map.dt$pat > 0]
+  }
+  
+  mat.block.ends <- rep(2*max(mat.block.starts), length(mat.block.starts))
+  mat.block.ends[1:length(mat.block.ends)-1] <- mat.block.starts[2:length(mat.block.starts)] - 1
+  # being lazy to find out what's the length of the mat chromosome,
+  # and knowing that GRanges doesn't take Inf well, I'm making the
+  # end of the last block to be a large number.
+  
+  blocks.GR <- GRanges(seqnames = peak.dt[1, chr],
+                       ranges = IRanges(start = mat.block.starts, end = mat.block.ends), 
+                       strand = "*",
+                       ref.block.starts = ref.block.starts)
+  
+  ovl <- findOverlaps(query = reads.GR, 
+                      subject = blocks.GR,
+                      type = "within",
+                      select = "first")
+  reads.mat.bl.start <- rep(0, length(reads.GR))
+  reads.mat.bl.start[!is.na(ovl)] <- start(blocks.GR[ovl[!is.na(ovl)]])
+  reads.ref.bl.start <- rep(0, length(reads.GR))
+  reads.ref.bl.start[!is.na(ovl)] <- values(blocks.GR[ovl[!is.na(ovl)]])$ref.block.starts
+  
+  reads.dt <- data.table(read.id = values(reads.GR)$read.id,
+                         mat.block.start = reads.mat.bl.start,
+                         ref.block.start = reads.ref.bl.start,
+                         mapped.pos = start(reads.GR) - reads.mat.bl.start + reads.ref.bl.start)
+  # we will get rid of the following reads:
+  # 1) Those that hit the junction of two maternal blocks (reads.mat.bl.start = 0).
+  # 2) Those that hit a maternal block that doesn't exist in the reference (reads.ref.bl.start = 0).
+  
+  reads.dt <- subset(reads.dt, mat.block.start > 0 & ref.block.start > 0)
+  setkey(reads.dt, read.id)
+  
+  setkey(peak.dt, read.id)
+  peak.dt <- peak.dt[reads.dt$read.id]
+  
+  len = peak.dt$end - peak.dt$start
+  peak.dt$start <- reads.dt$mapped.pos
+  peak.dt$end <- peak.dt$start + len
+  
+  cat(paste0(nrow(peak.dt), " reads were kept.\n"))
+  
+  write.table(peak.dt, 
+              file = mapped.file,
+              sep = "\t", 
+              quote = FALSE, 
+              row.names = FALSE,
+              col.names = FALSE)
+  invisible()
+# }
+# 
+# map.mat.to.ref()
+

@@ -1,0 +1,168 @@
+#!/usr/bin/perl 
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+plink2gt
+
+=head1 SYNOPSIS
+
+ plink2gt [options] <plink-root-filename>	
+
+ Converts PLINK map and ped files into a pseudo-mk, gt and sa files
+
+=head1 DESCRIPTION
+
+=cut
+
+
+
+
+## global variables
+my $file_rootname;
+my $file_plink_map;
+my $file_plink_ped;
+my $file_mk;
+my $file_gt;
+my $file_sa;
+my @snps = ();
+my %snps_info = ();
+my %alleles = ();
+
+
+## option variables
+my $help;
+
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)  {
+    if ($help)  {
+        pod2usage(-verbose => 2);
+    }
+    else  {
+        pod2usage(1);
+    }
+}
+$file_rootname = $ARGV[0];
+$file_plink_map = $ARGV[0] . '.map';
+$file_plink_ped = $ARGV[0] . '.ped';
+$file_mk = $ARGV[0] . '.mk';
+$file_gt = $ARGV[0] . '.gt';
+$file_sa = $ARGV[0] . '.sa';
+unless (-e $file_plink_map && -e $file_plink_ped)  {
+	pod2usage(-verbose => 2);
+}
+
+
+## use PLINK to generate allele freq to extract alleles
+system("plink --noweb --file $file_rootname --out $file_rootname --freq") == 0 
+	or die "Can't execute PLINK : $! \n";
+
+
+## reading the map file to extract relevant information
+open(iFILE, "< $file_plink_map") or die "Can't read plink map: $file_plink_map: $!\n";
+while(<iFILE>)  {
+	chomp;
+	my @fields = split();
+	my $num_cols = scalar(@fields);
+	die "Invalid num of columns : $num_cols \n" if($num_cols != 4);
+	my $chr = $fields[0];
+	if($fields[0] == 23)  {
+		$chr = 'X';
+	}
+	elsif($fields[0] == 24)  {
+		$chr = 'Y';
+	}
+	elsif($fields[0] == 25)  {
+		$chr = 'XY';
+	}
+	elsif($fields[0] == 26)  {
+		$chr = 'M';
+	}
+	$snps_info{$fields[1]} = $chr . "\t" . $fields[3];
+	push @snps, $fields[1];
+}
+close iFILE;
+
+
+## reading the plink frequency file and writing out the pseudo-mk file
+open(iFILE, "< $file_rootname.frq") or die "Can't read frq file: $file_rootname.frq: $! \n";
+open(oFILE, "> $file_mk") or die "Can't write map file: $file_mk: $!\n";
+print oFILE "snp-id\tchromosome\tposition\talleles\n";
+while(<iFILE>)  {
+	chomp;
+	$_=~s/^\s+//;
+	next if(/^CHR/i); ## ignore header
+	my @fields = split();
+	my $id = $fields[1];
+	my @bases = ($fields[2], $fields[3]);
+	@bases = sort @bases;
+	$alleles{$id}{$bases[0]} = 0 if($bases[0] =~/[DIACGT]/);
+	$alleles{$id}{$bases[1]} = 1 if($bases[1] =~/[DIACGT]/);
+	print oFILE "$id\t$snps_info{$id}\t$bases[0]/$bases[1]\n";
+}
+close iFILE;
+close oFILE;
+
+## reading the ped file and writing out the sa and gt files
+open(iFILE, "< $file_plink_ped") or die "Can't read plink ped: $file_plink_ped: $!\n";
+open(oFILE, "> $file_gt") or die "Can't write gt file: $file_gt: $!\n";
+open(oFILE_SA, "> $file_sa") or die "Can't write sa file: $file_sa: $!\n";
+# print out header information
+print oFILE "sample-id";
+foreach my $snp_id (@snps)  {
+	print oFILE "\t$snp_id";
+}
+print oFILE "\n";
+print oFILE_SA "sample-id\tsex\taffection\tfamily-id\tfather-id\tmother-id\n";
+
+# print out genotype information
+while(<iFILE>)  {
+	chomp;
+	my @fields = split();
+	my $family_id = shift @fields;
+	my $ind_id = shift @fields;
+	my $father_id = shift @fields;
+	my $mother_id = shift @fields;
+	my $sex = shift @fields;
+	my $phenotype = shift @fields;
+	die "num of columns do not match map file " . scalar(@fields) . "\n" 
+		if(scalar(@fields) != (2*scalar(@snps)));
+	
+	# sa file
+	my $sa_pheno = 'n/a';
+	my $sa_sex = 'n/a';
+	if($sex == 1)  {
+		$sa_sex = 'male';
+	}
+	elsif($sex == 2)  {
+		$sa_sex = 'female';
+	}
+	print oFILE_SA "$ind_id\t$sa_sex\t$sa_pheno\t$family_id\t$father_id\t$mother_id\n";
+	
+	# gt file
+	print oFILE $ind_id;
+	foreach my $snp_id (@snps)  {
+		my $allele1 = shift @fields;
+		my $allele2 = shift @fields;
+		my $genotype = '';
+		if(($allele1 eq $allele2) && ($allele1 eq '0'))  {
+			$genotype = "-1";
+		}
+		else  {
+			die "undetermined genotype $snp_id : $allele1/$allele2 \n" if($allele1 eq '0' || $allele2 eq '0');
+			die "problematic genotype $snp_id : $allele1/$allele2 \n" unless(exists $alleles{$snp_id}{$allele1} and exists $alleles{$snp_id}{$allele2});
+			$genotype = $alleles{$snp_id}{$allele1} + $alleles{$snp_id}{$allele2};			
+		}
+		print oFILE "\t$genotype";
+	}
+	print oFILE "\n";
+}
+close iFILE;
+close oFILE;
+close oFILE_SA;

@@ -1,0 +1,217 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+pisaXML2tsv
+
+=head1 SYNOPSIS
+
+ pisaXML2tsv [options] <xml-file>	
+
+  -h help
+  
+  <pisaXML-file> 
+  This file needs to be of the format interfaces.pisa?<PDBid> and with <pisa_interfaces> as the first line to be 
+  accepted as XML file from PDB PISA. 
+  
+  This script will parse out these info:
+  1) interface area
+  2) solvation free energy
+  3) p-value for (2)
+  4) Complexation Significance Score (CSS)
+  5) num of hydrogen bonds
+  6) num of disulphide bonds
+  7) num of salt-bridges
+  8) num of covalent bonds
+  
+  output filename = <PDBid>_pisaInterface.txt                
+ 
+  Example:
+     pisaXML2tsv interfaces.pisa?2KBR
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+
+## first check if this is PISA XML
+# check if this is PISA XML file
+if($ifile !~ m/\.pisa\?/)
+{
+	die "|$ifile| filename not an XML from PISA!: $!";
+}
+
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+#my($name, $path, $ext) = fileparse($ifile, '\..*');
+my @temp = split(/\?/,$ifile,2);
+my $PDBid = $temp[1];
+my $ofile = "$PDBid\_pisaInterface.txt";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+print OUTPUT "PDBid\tinterfaceArea\tsolv_free_energy\tpVal_solv_free\tCSS\tnumHbond\tnumSSbond\tnumSalt\tnumCov\n";
+print OUTPUT "$PDBid\.pdb";
+
+# variables	
+my $flag = 0;
+my ($hbondflag, $ssbondflag, $saltbondflag, $covbondflag) = (0,0,0,0);
+my $interface_flag = 0;
+my %PDBid2info;
+
+# read input file
+LINE:while (<INPUT>)
+{
+	chomp;
+	
+	# check if this is PISA XML file
+	if($_ !~ m/\<pisa_interfaces\>/ && ($flag != 1))
+	{
+		unlink $ofile;
+		die "|$_| $ifile is not an XML from PISA! First line doesn't match: $!";
+	}
+	else
+	{
+		$flag = 1;
+	}
+	
+	## i only want the first interface
+	if($_ =~ m/\<id\>1\<\/id\>/)
+	{
+		$interface_flag++;
+		next LINE;
+	}
+	
+	if($interface_flag == 1)
+	{
+		#interface area
+		if($_ =~ m/\<int_area\>/ && !exists($PDBid2info{$PDBid}{'interfaceArea'}))
+		{
+			m/\>(\S+)\</;
+			$PDBid2info{$PDBid}{'interfaceArea'} = $1;
+		}
+		
+		#solv_free_energy
+		if($_ =~ m/\<int_solv_en>/ && !exists($PDBid2info{$PDBid}{'solv_free_energy'}))
+		{			
+			m/\>(\S+)\</;
+			$PDBid2info{$PDBid}{'solv_free_energy'} = $1;
+		}
+		
+		#pVal_solv_free
+		if($_ =~ m/\<pvalue>/ && !exists($PDBid2info{$PDBid}{'pVal_solv_free'}))
+		{
+			m/\>(\S+)\</;
+			$PDBid2info{$PDBid}{'pVal_solv_free'} = $1;
+		}
+		
+		#CSS
+		if($_ =~ m/\<css>/ && !exists($PDBid2info{$PDBid}{'CSS'}))
+		{
+			m/\>(\S+)\</;
+			$PDBid2info{$PDBid}{'CSS'} = $1;
+		}
+		
+		#numHbond
+		if($_ =~ m/\<h-bonds>/ && !exists($PDBid2info{$PDBid}{'numHbond'}) || $hbondflag)
+		{
+			if (!$hbondflag)
+			{
+				$hbondflag = 1;
+				next LINE;
+			}
+			
+			if($_ =~ m/\<n_bonds>/ && !exists($PDBid2info{$PDBid}{'numHbond'}))
+			{
+				m/\>(\S+)\</;
+				$PDBid2info{$PDBid}{'numHbond'} = $1;
+			}
+		}
+		
+		#numSSbond
+		if($_ =~ m/\<ss-bonds>/ && !exists($PDBid2info{$PDBid}{'numSSbond'}) || $ssbondflag)
+		{
+			if(!$ssbondflag)
+			{
+				$ssbondflag = 1;
+				next LINE;
+			}
+			
+			if($_ =~ m/\<n_bonds>/ && !exists($PDBid2info{$PDBid}{'numSSbond'}))
+			{
+				m/\>(\S+)\</;
+				$PDBid2info{$PDBid}{'numSSbond'} = $1;
+			}
+		}
+		
+		#numSalt
+		if($_ =~ m/\<salt-bridges>/ && !exists($PDBid2info{$PDBid}{'numSalt'}) || $saltbondflag)
+		{
+			if(!$saltbondflag)
+			{
+				$saltbondflag = 1;
+				next LINE;
+			}
+			
+			if($_ =~ m/\<n_bonds>/ && !exists($PDBid2info{$PDBid}{'numSalt'}))
+			{
+				m/\>(\S+)\</;
+				$PDBid2info{$PDBid}{'numSalt'} = $1;
+			}
+		}
+		
+		#numCov
+		if($_ =~ m/\<cov-bonds>/ && !exists($PDBid2info{$PDBid}{'numCov'}) || $covbondflag)
+		{
+			if(!$covbondflag)
+			{
+				$covbondflag = 1;
+				next LINE;
+			}
+			
+			if($_ =~ m/\<n_bonds>/ && !exists($PDBid2info{$PDBid}{'numCov'}))
+			{
+				m/\>(\S+)\</;
+				$PDBid2info{$PDBid}{'numCov'} = $1;
+			}
+		}
+	}
+}
+print OUTPUT "\t".$PDBid2info{$PDBid}{'interfaceArea'};
+print OUTPUT "\t".$PDBid2info{$PDBid}{'solv_free_energy'};
+print OUTPUT "\t".$PDBid2info{$PDBid}{'pVal_solv_free'};
+print OUTPUT "\t".$PDBid2info{$PDBid}{'CSS'};
+print OUTPUT "\t".$PDBid2info{$PDBid}{'numHbond'};
+print OUTPUT "\t".$PDBid2info{$PDBid}{'numSSbond'};
+print OUTPUT "\t".$PDBid2info{$PDBid}{'numSalt'};
+print OUTPUT "\t".$PDBid2info{$PDBid}{'numCov'}."\n";
+
+close(INPUT);
+close(OUTPUT);
+	

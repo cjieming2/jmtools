@@ -1,0 +1,201 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use Getopt::Long;
+use Cwd;
+use File::Basename;
+use Pod::Usage;
+
+=head1 NAME
+
+flipalleles
+
+=head1 SYNOPSIS
+
+flipalleles [options] <tg-file>
+  
+ -h     help
+ -k     column in mk to determine if alleles will be flipped
+ -v     value in column k of mk for flipping
+ -M     mk-file
+        a)snp-id
+        b)alleles
+        c)Column to indicating flipping
+ tg-file     marker-sample oriented genotype file
+ 
+ --swaponly (optional); if this option is toggled, the alleles are swapped not reverse complemented (flip).
+ 
+ example: flipalleles -m wtccc-partial.mk -k 2 -v BOT wtccc-ctrl.tg
+ 
+ Flip the alleles in the marker and tg files for snps that is marked in a column specified in the marker file.
+  
+ Outputs recoded-<mk-file> and recoded-<tg-file>.
+ 
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $mkFile;
+my $tgFile;
+my $recodedMkFile;
+my $recodedTgFile;
+my $colNo;
+my $flipColNo;
+my $flipVal;
+my $headerProcessed;
+my %label2Column;
+my %SNP;
+my $swaponly = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'swaponly'=>\$swaponly, 'k=i'=>\$flipColNo, 'v=s'=>\$flipVal, 'm=s'=>\$mkFile)
+   || !defined($flipColNo)
+   || !defined($flipVal)
+   || !defined($mkFile))
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+$tgFile = $ARGV[0];
+isTg($tgFile) || die "$tgFile not a tg file";
+
+my($name, $path, $ext) = fileparse($mkFile, '\..*');
+$recodedMkFile = "recoded-$name.mk";
+open(RECODED_MK, ">$recodedMkFile") || die "Cannot open $recodedMkFile\n";
+open(MK, $mkFile) || die "Cannot open $mkFile";
+
+while(<MK>)
+{
+	s/\r?\n?$//;
+	
+	if(!$headerProcessed)
+	{
+		$colNo = s/\t/\t/g + 1;
+		
+		if ($flipColNo < 1 || $flipColNo > $colNo) { die "Flip column number outside the valid range of column numbers (1 - $colNo) in marker file" }
+
+		my @fields = split('\t', $_, $colNo);
+		
+		SEARCH_LABEL: for my $label ('snp-id', 'alleles')
+		{
+			for my $col (0 .. $#fields)
+			{
+				if ($fields[$col] eq $label)
+				{			
+					$label2Column{$label}=$col;
+					next SEARCH_LABEL;
+				}
+			}
+		}
+		
+		print RECODED_MK "$_\trecoded-alleles\n";
+		$headerProcessed = 1;
+	}
+	else
+	{
+		my @fields = split('\t', $_, $colNo);
+		my $snp = $fields[$label2Column{'snp-id'}];
+		my $alleles = $fields[$label2Column{'alleles'}];
+		my $recodedAlleles = $alleles;
+	
+		if ($fields[$flipColNo - 1] eq $flipVal)	#snp alleles and genotype will be flipped
+		{
+			$SNP{$snp}{0} = 2;
+			$SNP{$snp}{1} = 1;
+			$SNP{$snp}{2} = 0;
+		
+			my @alleles = split('/', $alleles);
+			
+			if ($alleles[0] =~ /[0ACGT]/ && $alleles[1] =~ /[ACGT]/)
+			{
+				if(!$swaponly)
+				{
+					$alleles[0] = reverseComplement($alleles[0]);
+					$alleles[1] = reverseComplement($alleles[1]);
+					@alleles = sort @alleles;
+					$recodedAlleles = "$alleles[0]/$alleles[1]";
+				}
+				else
+				{
+					#@alleles = sort @alleles;
+					$recodedAlleles = "$alleles[1]/$alleles[0]";
+				}
+			}
+		}
+		else
+		{
+			$SNP{$snp}{0} = 0;
+			$SNP{$snp}{1} = 1;
+			$SNP{$snp}{2} = 2;
+		}
+		print RECODED_MK "$_\t$recodedAlleles\n";
+	}
+}
+close(MK);
+close(RECODED_MK);
+
+($name, $path, $ext) = fileparse($tgFile, '\..*');
+$recodedTgFile = "recoded-$name.tg";
+open(RECODED_TG, ">$recodedTgFile") || die "Cannot open $recodedTgFile\n";
+open(TG, "$tgFile") || die "Cannot open $tgFile\n";
+
+$headerProcessed = 0;
+while (<TG>)
+{
+    s/\r?\n?$//;
+   
+    if(!$headerProcessed)
+    {
+    	$colNo = s/\t/\t/g + 1;
+    	
+        print RECODED_TG "$_\n";
+        
+        $headerProcessed = 1;
+    }
+    else
+    {
+    	my @fields = split('\t', $_, $colNo);
+    
+		my $snp = $fields[0];
+
+        print RECODED_TG "$snp";
+        
+		for my $col (1..$#fields)
+		{
+			my $genotype = $fields[$col];
+			
+			if ($genotype == -1)
+			{
+				print RECODED_TG "\t$genotype";
+			}
+			elsif (exists($SNP{$snp}{$genotype}))
+			{
+				print RECODED_TG "\t$SNP{$snp}{$genotype}";
+			}
+			else
+			{
+				warn"$snp: Unrecognised genotype: $genotype";
+			}
+		}
+
+        print RECODED_TG "\n";
+    }
+}
+
+close(TG);
+close(RECODED_TG);
+
+#print "$flipColNo\t$flipVal\t$mkFile\t$tgFile\n";

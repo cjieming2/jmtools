@@ -1,0 +1,282 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+dbsnp_sub-snpinduse
+
+=head1 SYNOPSIS
+
+ dbsnp_sub-snpinduse [options] -s <sa-file> -M <mk-file> <tg-file>	
+
+  -h help
+  -s SA file
+  -M MK file
+  -h submission handle (case-sensitive)
+  -t method handle (case-sensitive)
+  -b batch
+  
+  SA file required for sample information. This assumes that all are human samples (TAXON=9606) and are outbreds (breeding structure).
+  -- sample-id, population-abbreviation, sex, ethnicity
+  METHOD section needs to be filled in manually, where HANDLE and METHOD are mandatory. ID is automatically added with option -t.
+  MK file required for marker information. Make sure the marker information is the header. Assume RS_STRAND_FWD.
+  -- rs-id, alleles
+  TG file SNP ID is in rs-id.
+  
+  Warning signs will appear if the numbers in MK and SA do not tally with TG file.
+  
+  
+  Example:
+     dbsnp_sub-snpinduse -b PASNP_1 -h PASNPI -t AFFY_ASSAY -M markers.mk -s samples.sa geno.tg
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $saFile;
+my $mkFile;
+my $myhandle;
+my $methandle;
+my $batch;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'b=s'=>\$batch, 'M=s'=>\$mkFile, 't=s'=>\$methandle, 's=s'=>\$saFile, 'h=s'=>\$myhandle) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $tgfile = $ARGV[0];
+
+## check if it's TG format: i.e. first header 'snp-id', ext .tg
+if(!isTg($tgfile))
+{
+	die "$tgfile not a tg file";
+}
+
+#open (INPUT, $tgfile) || die "Cannot open $tgfile: $!";
+open (SA, $saFile) || die "Cannot open $saFile: $!";
+open (MK, $mkFile) || die "Cannot open $mkFile: $!";
+open (INPUT, $tgfile) || die "Cannot open $tgfile: $!";
+
+## output file
+my($name, $path, $ext) = fileparse($tgfile, '\..*');
+my $ofile = "$name.full.dbsnpinduse";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+# variables
+my $saheaderProcessed = 0;
+my %field2col = ();
+my %sample2data = ();
+
+print OUTPUT "||\n".
+"TYPE:\tMETHOD\n".
+"ID:\t$methandle\n".
+"METHOD_CLASS:\n".
+"SEQ_BOTH_STRANDS:\n".
+"TEMPLATE_TYPE:\n".
+"MULT_PCR_AMPLIFICATION:\n".
+"MULT_CLONES_TESTED:\n".
+"METHOD:\n";
+
+# read sa file
+while (<SA>)
+{
+	chomp $_;
+	my @fields = split("\t",$_);
+	chomp @fields;
+	
+	## read header
+	if(!$saheaderProcessed)
+	{
+		for (my $i=0;$i<@fields;$i++)
+		{
+			if($fields[$i] eq 'sample-id')
+			{
+				$field2col{'sample-id'} = $i;
+			}
+			elsif($fields[$i] eq 'population-abbreviation')
+			{
+				$field2col{'population-abbreviation'} = $i;
+			}
+			elsif($fields[$i] eq 'sex')
+			{
+				$field2col{'sex'} = $i;
+			}
+			elsif($fields[$i] eq 'ethnicity')
+			{
+				$field2col{'ethnicity'} = $i;
+			}
+			$saheaderProcessed = 1;
+		} ## loop through the header fields
+	} ## sa header not processed
+	else
+	{
+		#$sample2data{$fields[$field2col{'sample-id'}]}{'sample-id'} = $fields[$field2col{'sample-id'}];
+		## each key is sampleid, value population abbreviation
+		$sample2data{$fields[$field2col{'sample-id'}]} = $fields[$field2col{'population-abbreviation'}];
+		#$sample2data{$fields[$field2col{'sample-id'}]}{'sex'} = $fields[$field2col{'sex'}];
+		#$sample2data{$fields[$field2col{'sample-id'}]}{'ethnicity'} = $fields[$field2col{'ethnicity'}];
+		
+		my $sampleid = $fields[$field2col{'sample-id'}];
+		my $popabbrev = $fields[$field2col{'population-abbreviation'}];
+		my $sex = $fields[$field2col{'sex'}];
+		
+		if(($sex eq 'female') || ($sex eq 'Female'))
+		{
+			$sex = 'F';
+		}
+		elsif(($sex eq 'male') || ($sex eq 'Male'))
+		{
+			$sex = 'M';
+		}
+		
+		my $ethnicity = $fields[$field2col{'ethnicity'}];
+		
+		print OUTPUT "||\n".
+		"TYPE:\tINDIVIDUAL\n".
+		"IND:\t$myhandle|$popabbrev|$sampleid|9606|$sex|O|$ethnicity\n".
+		"SOURCE:\trepository|$myhandle|$sampleid|$ethnicity\n".
+		"PEDIGREE:unrelated|unrelated|unrelated|0|0\n";
+				
+	} ## sa header processed; store data
+}
+
+print OUTPUT "||\n".
+"TYPE:\tSNPINDUSE\n".
+"HANDLE:\tPASNPI\n".
+"BATCH:$batch\n".
+"METHOD:$methandle\n";
+
+## variablesMK
+my %field2colMK;
+my $mkProcessed = 0;
+my %marker2data;
+
+while(<MK>)
+{
+	chomp $_;
+	my @fields = split("\t",$_);
+	chomp @fields;
+	
+	if(!$mkProcessed)
+	{
+		for(my $i=0;$i<@fields;$i++)
+		{
+			if($fields[$i] eq 'rs-id')
+			{
+				$field2colMK{'rs-id'} = $i;
+			}
+			elsif($fields[$i] eq 'alleles')
+			{
+				$field2colMK{'alleles'} = $i;
+			}
+		}
+		$mkProcessed = 1;
+	} ## mk header not processed
+	else
+	{
+		my @alleles = split("\/",$fields[$field2colMK{'alleles'}]);
+		my $alleleA = $alleles[0];
+		my $alleleB = $alleles[1];
+		
+		$marker2data{$fields[$field2colMK{'rs-id'}]}{'rs-id'} = $fields[$field2colMK{'rs-id'}];
+		$marker2data{$fields[$field2colMK{'rs-id'}]}{'alleleA'} = $alleleA;
+		$marker2data{$fields[$field2colMK{'rs-id'}]}{'alleleB'} = $alleleB;
+		
+	} ## mk header processed
+}
+
+
+## variablesTG
+my %field2coltg;
+my $headerProcessed = 0;
+
+while(<INPUT>)
+{
+	chomp $_;
+	my @fields = split("\t",$_);
+	chomp @fields;
+	
+	if(!$headerProcessed) ## TG file so header should be samples
+	{
+		for(my $i=0;$i<@fields;$i++)
+		{
+			if($fields[$i] eq 'rs-id')
+			{
+				$field2coltg{'rs-id'} = $i;
+				last;
+			}
+		}
+		
+		foreach my $key (keys %sample2data)
+		{			
+			for(my $i=0;$i<@fields;$i++)
+			{
+				if($key eq $fields[$i])
+				{
+					## every sample id will have one col appended
+					$field2coltg{$key} = $i;
+				}
+			}
+		}
+		$headerProcessed = 1;
+	} ## TG header not processed
+	else
+	{
+		## ensure that TG first column is rs-id
+		my $snpid = $fields[0];
+		foreach my $key (keys %field2coltg)
+		{
+			print OUTPUT "||\n".
+			"ID:\t$myhandle|$sample2data{$key}:$key\n";
+			
+			my $genotype = $fields[$field2coltg{$key}];
+			
+			#print "|$genotype|"; ##debug
+			
+			if($genotype == 0)
+			{
+				print OUTPUT "SNP:\t$myhandle|$snpid:$marker2data{$snpid}{'alleleA'}/$marker2data{$snpid}{'alleleA'}|RS_STRAND_FWD\n";
+			}
+			elsif($genotype == 1)
+			{
+				print OUTPUT "SNP:\t$myhandle|$snpid:$marker2data{$snpid}{'alleleA'}/$marker2data{$snpid}{'alleleB'}|RS_STRAND_FWD\n";
+			}
+			elsif($genotype == 2)
+			{
+				print OUTPUT "SNP:\t$myhandle|$snpid:$marker2data{$snpid}{'alleleB'}/$marker2data{$snpid}{'alleleB'}|RS_STRAND_FWD\n";
+			}
+			else
+			{
+				print OUTPUT "SNP:\t$myhandle|$snpid:(indeterminate)|RS_STRAND_FWD\n";
+			}
+			
+			print OUTPUT "SNP:\nSNP:\nSNP:\nSNP:\n";
+		}
+	} ## TG non-header
+	
+	
+} ## TG file being processed 
+
+close (SA);
+close (OUTPUT);
+close (MK);
+close (INPUT);

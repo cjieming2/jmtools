@@ -1,0 +1,150 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+plinkLD2tagsnplist
+
+=head1 SYNOPSIS
+
+ plinkLD2tagsnplist [options] <trimmed-file.tsv>	
+
+  -h help
+  trimmed-file.tsv trimmed and ssv2tsv-ed file of the output of PLINK tag SNP search.
+  Requires the headers: (a) SNP (b) TAG
+  
+  Outputs a list of tag SNPs from the list. The selection of tag SNPs is based on the first SNP found.
+  
+  Example:
+     plinkLD2tagsnplist trimmed-geno..tsv
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+
+## check if it's TG format: i.e. first header 'snp-id', ext .tg
+#if(!isTg($ifile))
+#{
+#	die "$ifile not a tg file";
+#}
+
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+my $ofile = "$name.taglist";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+# variables
+my $headerProcessed = 0;
+my %header2col;
+$header2col{'SNP'} = "jm";
+$header2col{'TAGS'} = "jm";
+my @snplist = ();
+
+while (<INPUT>)
+{
+	my @fields = split(/\t/,$_);
+	chomp @fields; 
+	
+	if(!$headerProcessed)
+	{
+		for (my $i=0;$i<@fields;$i++)
+		{
+			if($fields[$i] eq "SNP")
+			{
+				$header2col{'SNP'} = $i;
+			}
+			elsif($fields[$i] eq "TAGS")
+			{
+				$header2col{'TAGS'} = $i;
+			}
+			else
+			{
+				next;
+			}
+		} ## end of header fields loop
+		
+		print OUTPUT "snp-id\n";
+		
+		if($header2col{'SNP'} eq "jm" || $header2col{'TAGS'} eq "jm")
+		{
+			close(OUTPUT);
+			unlink $ofile;
+			die "INPUT does not contain header SNP or TAGS or both, please check!: $!";
+		}
+		$headerProcessed = 1;
+	} ## process header
+	else
+	{
+		if($fields[$header2col{'TAGS'}] eq 'NONE')
+		{
+			print OUTPUT $fields[$header2col{'SNP'}]."\n";
+			next;
+		} ## NONE snps skip to next row
+		else
+		{
+			my @tags = split(/\|/,$fields[$header2col{'TAGS'}]);
+			push (@tags, $fields[$header2col{'SNP'}]);
+		  chomp @tags;
+			
+			if(!defined($snplist[0]))
+			{
+				print OUTPUT "$fields[$header2col{'SNP'}]\n";
+				push(@snplist, @tags);
+			}
+			
+			for(my $i=0;$i<@snplist;$i++)
+			{
+				#print join("|", @snplist)."\n"; #debug
+				if($snplist[$i] eq $fields[$header2col{'SNP'}])
+				{
+					last;
+				} ## if found a repeat exit snplist
+				else
+				{
+					if($i == $#snplist) 
+					{
+						print OUTPUT "$fields[$header2col{'SNP'}]\n";
+						unshift(@snplist, @tags);
+						last;
+					} ## if reaches last element of array
+					next;
+				} ## else keep looping through snplist
+			} ## for loops snplist
+		} ## tag snps present, parse
+	} ## non-header ie your rows
+}
+
+
+
+close (INPUT);
+close (OUTPUT);

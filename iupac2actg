@@ -1,0 +1,146 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+iupac2actg
+
+=head1 SYNOPSIS
+
+ iupac2actg [options] <input-file>	
+
+  -h help
+  
+  Input:
+  This file takes in a tab-delimited file with header names:
+  1) Normal Call
+  2) Tumor Call (assumes only IUPAC nucleotide codes R,Y,S,W,K or M)
+ 
+ 	Output:
+ 	The output file is the original line in the input file appended with a new column in the form
+ 	A/B where A=Normal Call and B is the counterpart of the original IUPAC notation on the tumor call.
+ 	If B was not an IUPAC, it is assumed to be and thus remains ACTG.
+ 	
+ 	This can be modified to be more generic. But for the purpose of this assignment, it should be sufficient.
+ 	
+  Example:
+     iupac2actg somatic_mutations_chr7.tab
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+my $ofile = "$name.out";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+# variables
+my $headerProcessed = 0;
+my %label2Column;
+my $combinedcall = '';
+	
+# read file
+while (<INPUT>)
+{
+	s/\r?\n?$//;
+	my @fields = split(/\t/, $_);
+	chomp @fields;
+	
+	# print the original input to output
+	print OUTPUT "$_";
+	
+	## process the header
+	if(!$headerProcessed)
+	{
+		print OUTPUT "\tcombinedCall\n";
+		
+		SEARCH_LABEL: for my $label ('Normal Call', 'Tumor Call')
+		{
+			for my $col (0 .. $#fields)
+			{
+				if ($fields[$col] eq $label)
+				{			
+					$label2Column{$label}=$col;
+					next SEARCH_LABEL;
+				}
+			}
+		}
+	
+		$headerProcessed = 1;
+	}
+	else
+	{		
+		my $normalcall = $fields[$label2Column{'Normal Call'}];
+		my $tumorcall = $fields[$label2Column{'Tumor Call'}];
+		
+		#R
+		if($tumorcall eq 'R')
+		{
+			$combinedcall = ($normalcall eq 'G') ? 'A' : 'G';
+		}
+		#Y
+		elsif($tumorcall eq 'Y')
+		{
+			$combinedcall = ($normalcall eq 'C') ? 'T' : 'C';
+		}
+		#S
+		elsif($tumorcall eq 'S')
+		{
+			$combinedcall = ($normalcall eq 'G') ? 'C' : 'G';
+		}
+		#W
+		elsif($tumorcall eq 'W')
+		{
+			$combinedcall = ($normalcall eq 'A') ? 'T' : 'A';
+		}
+		#K 
+		elsif($tumorcall eq 'K')
+		{
+			$combinedcall = ($normalcall eq 'G') ? 'T' : 'G';
+		}
+		#M
+		elsif($tumorcall eq 'M')
+		{
+			$combinedcall = ($normalcall eq 'A') ? 'C' : 'A';
+		}
+		else
+		{
+			$combinedcall = $normalcall;
+		}
+		
+		# print the output
+		print OUTPUT "\t$normalcall\/$combinedcall\n";
+	} 
+}
+
+close(INPUT);
+close(OUTPUT);
+	

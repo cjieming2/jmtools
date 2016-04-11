@@ -1,0 +1,177 @@
+#!/usr/bin/perl -w
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+get-highest-intensities4vik
+
+=head1 SYNOPSIS
+
+get-highest-intensities4vik <transposed-tmp file>
+
+  -h help
+  
+  header of the input file must have the following:
+  1)probeset_id-block       
+  2)probe_type      
+  3)block: probeA/B in Affy file (where 0 from the original file is A and 1 is B)
+  4)columns for samples.CEL
+  
+  This is quite a specific PERL code for /home/chenjm/vikrant/cnv/affy-illumina/raw-intensites/3not-merged-305788/sieved-10+1samples-cel-305786snps-raw-intensities-affy-noAFFX.intens
+  It will give output-<inputfile>.
+  It picks out the highest intensity for the multiple same probes in Affy intensities file.
+  
+  if any other variation is required, there is a need to modify the code.
+     
+  USAGE:
+     get-highest-intensities4vik sieved-10+1samples-cel-305786snps-raw-intensities-affy-noAFFX.intens
+  
+=head1 DESCRIPTION
+
+=cut
+
+#initialize options
+#option variables
+my $help;
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+#if (@ARGV==0)
+#{
+#	die "NO ARGUMENTS!: $!";
+#}
+
+# variables
+# assuming the file fed in is transposed-tmp-list
+# header required
+# probeset_id-block       probe_type      block(which is probeA/B in Affy file)   (samples.CEL)
+my $ifile=$ARGV[0];
+my $ofile="output-$ifile";
+my $headerProcessed = 0;
+my %probe2count;
+my %probe2intensity;
+my %header2col;
+my $prevprobe = "jm";
+
+my @listofSamples = qw( GM10851.CEL GM12044.CEL GM12056.CEL
+												GM12056_duplicate.CEL GM12057.CEL GM15510.CEL
+												GM18632.CEL GM18971.CEL GM19137.CEL GM19138.CEL
+												GM19139.CEL );
+												
+my @listofSNPs;
+
+# open file 
+open (INPUT, $ifile) || die "Cannot open $ifile:$!";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile:$!";
+
+while (<INPUT>)
+{	
+	# header not processed
+	if (!$headerProcessed)
+	{
+		print OUTPUT "$_";
+		my @items=split(/\t/,$_);
+		chomp @items;
+		
+		for (my $i=0; $i<@items; $i++)
+		{
+			foreach my $j ('probeset_id-block', @listofSamples)
+			{
+				if ($items[$i] eq $j)
+				{
+					$header2col{$j} = $i;
+					
+#					print "$j\t$i\n"; ##debug check column match header
+					
+					last;
+				}
+			}
+		}
+		
+		$headerProcessed = 1;		
+	}## header processed
+	else
+	{
+		my @items=split(/\t/,$_);
+		chomp @items;
+		
+		my $currprobe = $items[$header2col{'probeset_id-block'}];
+						
+		$probe2count{$currprobe}++;
+		
+		#print "$currprobe: $probe2count{$currprobe}\n"; ##debug
+		
+		if ($probe2count{$currprobe} == 1)
+		{
+			push(@listofSNPs, $currprobe);
+			## initialise
+			foreach my $sample (@listofSamples)
+			{
+				$probe2intensity{$currprobe}{$sample} = 0;
+			}
+		}
+		
+		## compare intensity values in the 10 samples
+		for (my $i=3; $i<14; $i++)
+		{
+#			foreach my $sample (@listofSamples)
+#			{
+#				if($header2col{$sample} == $i)
+#				{
+#					$newnum = $i;
+#					last;
+#				}
+#			}
+			my $newnum=$i-3;
+			
+			#print "$currprobe\t$listofSamples[$newnum]\t$probe2intensity{$currprobe}{$listofSamples[$newnum]}\t$items[$i]\n"; ##debug
+			
+			if ($probe2intensity{$currprobe}{$listofSamples[$newnum]} != $items[$i])
+			{
+				if ($probe2intensity{$currprobe}{$listofSamples[$newnum]} < $items[$i])
+				{
+					$probe2intensity{$currprobe}{$listofSamples[$newnum]} = $items[$i];
+				}
+			}
+			
+			#print "NEW\n$currprobe\t$listofSamples[$newnum]\t$probe2intensity{$currprobe}{$listofSamples[$newnum]}\t$items[$i]\n"; ##debug
+			
+			
+		}		
+	}
+}##next line
+
+## printing
+foreach my $probe (@listofSNPs)
+{
+	my @f = split(/\-/,$probe);
+	chomp @f;
+	
+	print OUTPUT "$probe\tpm\t$f[2]";
+	
+	foreach my $sample (@listofSamples)
+	{
+		print OUTPUT "\t$probe2intensity{$probe}{$sample}";
+	}
+	print OUTPUT "\n",
+}
+
+close (INPUT);
+close (OUTPUT);

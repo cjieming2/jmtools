@@ -1,0 +1,184 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+pisaXML2tsv
+
+=head1 SYNOPSIS
+
+ pisaXML2tsv [options] <xml-file>	
+
+  -h help
+  
+  <pisaXML-file> 
+  This file needs to be of the format interfaces.pisa?<PDBid> and with <pisa_interfaces> as the first line to be 
+  accepted as XML file from PDB PISA. 
+  
+  This script will parse out these info:
+  1) interface area
+  2) solvation free energy
+  3) p-value for (2)
+  4) Complexation Significance Score (CSS)
+  5) num of hydrogen bonds
+  6) num of disulphide bonds
+  7) num of salt-bridges
+  8) num of covalent bonds
+  
+  output filename = <PDBid>_pisaInterface.txt                
+ 
+  Example:
+     pisaXML2tsv interfaces.pisa?2KBR
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+
+## first check if this is PISA XML
+# check if this is PISA XML file
+if($ifile !~ m/\.pisa\?/)
+{
+	die "|$ifile| filename not an XML from PISA!: $!";
+}
+
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+#my($name, $path, $ext) = fileparse($ifile, '\..*');
+my @temp = split(/\?/,$ifile,2);
+my $PDBid = $temp[1];
+my $ofile = "$PDBid\_pisaInterface.txt";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+print OUTPUT "PDBid\tinterfaceArea\tsolv_free_energy\tpVal_solv_free\tCSS\tnumHbond\tnumSSbond\tnumSalt\tnumCov\n";
+print OUTPUT "$PDBid";
+
+# Script to illustrate how to parse a simple XML file
+# and dump its contents in a Perl hash record.
+
+use XML::Parser;
+use Data::Dumper;
+
+## tree style
+my $p = XML::Parser->new(Style => 'Tree');
+my $tree = $p->parsefile($ifile);
+#print Dumper($tree);
+
+print $tree[0];  
+  
+  
+  
+  
+
+#printTree($tree);
+#my $interfacelist = XMLin($ifile);
+#print Dumper($interfacelist);
+
+## simple invocation of the XML::Parser; stream style
+#my $parser = new XML::Parser(ErrorContext => 2);
+
+#$parser->setHandlers(Start => \&start_handler,
+#                      End   => \&end_handler,
+#                      Char  => \&char_handler);
+#
+#$parser->parsefile($ifile);
+
+
+close(INPUT);
+close(OUTPUT);
+# ---------------------------------------------
+#print tree style
+#
+sub printTree
+{
+  # The root tree is always a 2-element array
+  # of the root element and its content:
+  printElement(@{ shift @_ });
+  print "\n";
+}
+
+sub printElement
+{
+  my ($tag, $content) = @_;
+
+  if (ref $content) {
+    # This is a XML element:
+    my $attrHash = $content->[0];
+
+    print "||$attrHash||";           # debug I'm ignoring attributes
+
+    for (my $i = 1; $i < $#$content; $i += 2) {
+    	print "$i JM\n";
+      printElement(@$content[$i, $i+1]);
+    }
+
+    print "</$tag>";
+  } else {
+    # This is a text pseudo-element:
+    print "$content...";             # I'm not encoding entities
+  }
+} # end printElement
+# ---------------------------------------------
+#
+# The handlers for the XML Parser for stream style
+#
+
+sub start_handler
+{
+    my $expat = shift; my $element = shift;
+
+    # element is the name of the tag
+
+    #print $startsub{$element};
+
+    # Handle the attributes
+    while (@_) {
+    	print "start\n";
+	my $att = shift;
+	my $val = shift;
+	print "$att=$val ";
+    }
+
+}
+
+sub end_handler
+{
+	print "end\n";
+    my $expat = shift; my $element = shift;
+    #print $endsub{$element};
+}
+
+
+sub char_handler
+{
+	print "what is this?\n";
+    my ($p, $data) = @_;
+    print $data;
+
+}

@@ -1,0 +1,197 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+maxMin4jas
+
+=head1 SYNOPSIS
+
+ -h help
+  
+  -n 0 min value (default), 1 for max value, 2 for average, 3 for sum
+  -c column number (1-based) in which the column to choose the values are
+  
+  header of the input file must have the following:
+  1) id (contain repeated values)
+  2) column to pick max or min or average
+  
+  This script picks the max or min value or average found in a user-defined column of repeated values.
+  
+  USAGE:
+     maxMin4jas -n 1 -c 2 snp.tsv
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $maxMin = 0;
+my $col = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'n=i'=>\$maxMin, 'c=i'=>\$col) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+
+if($col == 0)
+{
+	die "column cannot be $col";
+}
+
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+#my($name, $path, $ext) = fileparse($ifile, '\..*');
+#
+#my $outlabel;
+#if($maxMin == 0){	$outlabel = 'min'; }
+#elsif($maxMin == 1){	$outlabel = 'max'; }
+#elsif($maxMin == 2){	$outlabel = 'ave'; }
+#elsif($maxMin == 3){  $outlabel = 'sum'; }
+#else
+#{
+#	die "Please enter only 0,1,2,3 for -n option:$!";
+#}
+
+#my $ofile = "$outlabel\-$ifile";
+#open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+# variables
+my $headerProcessed = 0;
+my %header2col;
+my %id2min;
+my $col2array = $col-1;
+my $chosenCol;
+	
+# read input file
+LINE1:while (<INPUT>)
+{
+	s/\r?\n?$//;
+	chomp $_;
+	my @fields = split(/\t/, $_);
+	
+	if(!$headerProcessed)
+	{
+#		print OUTPUT join("\t",@fields);
+#		print OUTPUT "\n";
+		print join("\t",@fields);
+		print "\n";
+		
+		$chosenCol = $fields[$col2array];
+#		print "find $outlabel in chosen column: $fields[$col2array]\n";
+		
+		SEARCH_LABEL_SUBJ: for my $label ('id')
+		{					
+			for (my $i=0;$i<@fields;$i++)
+			{				
+				if($fields[$i] eq $label)
+				{
+					$header2col{$label} = $i;
+					next SEARCH_LABEL_SUBJ;
+				}
+			}
+			
+#			unlink $ofile;
+			die "Cannot find $label in $ifile";
+		} ## loop header's fields
+		
+		$headerProcessed = 1;
+		next LINE1;
+	} ## subj header
+	else
+	{	
+		# check col values if it's numeric
+		if($fields[$col2array] !~ m/^(\d+\.?\d*|\.\d+)$/)
+		{
+			die "col $chosenCol does not contain numeric values!";
+		}		
+			
+		if(!exists($id2min{$fields[$header2col{'id'}]})) # first instance of id (repeated value)
+		{
+			$id2min{$fields[$header2col{'id'}]}{'col'} = $fields[$col2array];
+			$id2min{$fields[$header2col{'id'}]}{'line'} = $_;
+			
+			if($maxMin == 2)
+			{
+				$id2min{$fields[$header2col{'id'}]}{'count'} = 1;
+			}
+		}
+		else
+		{
+			if($maxMin == 0) # min value
+			{
+				if($id2min{$fields[$header2col{'id'}]}{'col'} > $fields[$col2array])
+				{
+					$id2min{$fields[$header2col{'id'}]}{'col'} = $fields[$col2array];
+					$id2min{$fields[$header2col{'id'}]}{'line'} = $_;
+				}
+				else
+				{
+					next LINE1;
+				}
+			}
+			elsif($maxMin == 1) # max value
+			{
+				if($id2min{$fields[$header2col{'id'}]}{'col'} < $fields[$col2array])
+				{
+					$id2min{$fields[$header2col{'id'}]}{'col'} = $fields[$col2array];
+					$id2min{$fields[$header2col{'id'}]}{'line'} = $_;
+				}
+				else
+				{
+					next LINE1;
+				}
+			}
+			elsif($maxMin == 2) # average = 2
+			{
+				$id2min{$fields[$header2col{'id'}]}{'col'} = $id2min{$fields[$header2col{'id'}]}{'col'} + $fields[$col2array];
+				$id2min{$fields[$header2col{'id'}]}{'count'} = $id2min{$fields[$header2col{'id'}]}{'count'} + 1;
+				$fields[$col2array] = $id2min{$fields[$header2col{'id'}]}{'col'} / $id2min{$fields[$header2col{'id'}]}{'count'};
+				$id2min{$fields[$header2col{'id'}]}{'line'} = join("\t",@fields);
+			}
+			elsif($maxMin == 3) # sum of the values like adding up sizes of non-contiguous genes
+			{
+				## can't merge these 2 lines because the @fields get re-initialized every iteration
+				## need a placeholder to save the summed value
+				$id2min{$fields[$header2col{'id'}]}{'col'} = $id2min{$fields[$header2col{'id'}]}{'col'} + $fields[$col2array];
+				$fields[$col2array] = $id2min{$fields[$header2col{'id'}]}{'col'};
+				$id2min{$fields[$header2col{'id'}]}{'line'} = join("\t",@fields);
+			}
+			else
+			{
+				die "Please enter only 0,1,2,3 for -n option:$!";
+			}
+		}
+	}
+}
+
+for my $k1 (keys %id2min)
+{
+#	print OUTPUT "$id2min{$k1}{'line'}\n";
+	print "$id2min{$k1}{'line'}\n";
+}
+
+close(INPUT);
+#close(OUTPUT);
+	

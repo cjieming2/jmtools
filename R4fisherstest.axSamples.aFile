@@ -1,0 +1,170 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+use Cwd;
+
+=head1 NAME
+
+R4fisherstest
+
+=head1 SYNOPSIS
+
+ R4fisherstest [options] <list of files>
+
+  -h help
+  
+  the 'windowBed' function in bedTools is used for intersection, with -w 0
+  
+  REQUIRES: BEDTOOLS, and sortByChr.sh shell script from jmtools
+  
+  INPUT: <list of files to intersect> 
+  the intersection should occur pairwise, for all rows in file b
+  1st col is the filename for -a, where this script allows redundancy by the 4th col
+  2nd col is the name for A in Fishers test, e.g. intHets
+  3rd col is the filename for -b, where this script does a merge to remove redundant regions
+  4th col is the name for B in Fishers test, e.g. accHets
+  5th col is the region file (e.g. BED file) where each row is the region you want to test
+  TO-DO: 
+  -option for -w is 0. Need to change if otherwise.
+            region  | non-region
+  -------------------------------
+  intHets | (1,1)   |   (1,2)
+  accHets | (2,1)   |   (2,2)
+  
+ 	OUTPUT:
+ 	1) file ext "fishersresults" contains 2-by-2 table in matrix R format where a,b,c,d correspond to (1,1),(2,1),(1,2),(2,2)
+ 	2) R script with comments for Fishers Exact Test; note that the name of the region is the combination of chr-pos-end of each row in file b
+ 	on a 2-by-2 table,
+ 	col1 row1 in input = entry (1,1)
+ 	col1 row2 in input = entry (2,1)
+ 	
+ 	entries (1,2) and (2,2) are calculated based on total number of lines for files in input col1 row1 and col1 row2
+ 	
+ 	previous version detects redundant SNP entries (R4fisherstest) on multiple transcripts of the same genetic location.
+ 	this script retains that redundancy, since we are counting each individual as an entry too.
+ 	
+  Example:
+     R4fisherstest.axSamples.aFile jm.Rfisherslist
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+my $ofile = "$name.fishersresultsCounts";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+## print R script
+my $rscript = "$name.r";
+open (RSCRIPT, ">$rscript") || die "Cannot open $rscript: $!";
+
+## variables
+my $ctr = 2;
+my %TwobyTwoTableCol1; 
+my %TwobyTwoTableCol2;
+my %checkcols;
+my $tmp;
+
+## read input
+while (<INPUT>)
+{	
+	chomp;
+	my ($fileIntHets,$nameInt,$fileAccHets,$nameAcc,$fileRegion) = split(/\t/,$_,5);
+	
+	
+	## open up regionfile, print content to tmp file and loop through each row as the region
+	open (REGIONS, "$fileRegion") || die "Cannot open $fileRegion: $!";
+	while (<REGIONS>)
+	{
+		chomp $_;
+		
+		## temp file
+		$tmp = $fileIntHets.'-'.$nameInt.'-'.$fileAccHets.'-'.$nameAcc.'-'.$fileRegion."-tmp.txt";
+		open (TMP, ">$tmp") || die "Cannot open $tmp: $!";
+		my @N2 = split("\t",$_,4);
+		#print "$N2[0]\t$N2[1]\t$N2[2]\t$N2[3]\n"; ### debug
+		print TMP "$N2[0]\t$N2[1]\t$N2[2]\t$N2[3]\n";
+		
+		## number of intersected things for intHet and accHets in region
+		my $numIntHets = `intersectBed -a $fileIntHets -b $tmp | sort | uniq | wc -l`;
+		my $numAccHets = `intersectBed -a $fileAccHets -b $tmp | sort | uniq | wc -l`;
+		
+		## total number of intHets and accHets
+		my ($totalIntHets,$fileIntHetsTmp) = split(" ",`wc -l $fileIntHets`);
+		my ($totalAccHets,$fileAccHetsTmp) = split(" ",`wc -l $fileAccHets`);
+		
+		## number of things for intHets and accHets NOT in region
+		my $notRegionIntHets = $totalIntHets - $numIntHets;
+		my $notRegionAccHets = $totalAccHets - $numAccHets;
+		
+		chomp ($numIntHets,$numAccHets,$totalIntHets,$fileIntHetsTmp,$totalAccHets,$fileAccHetsTmp,$notRegionIntHets,$notRegionAccHets);
+		
+		$checkcols{$nameInt} = 1  ;
+		$checkcols{$nameAcc} = 1  ;
+		
+		## col1: in region ; col2: not in region
+		my $name2 = $N2[0]."-".$N2[1]."-".$N2[2];
+		$TwobyTwoTableCol1{$name2} = $numIntHets.','.$numAccHets;
+		$TwobyTwoTableCol2{$name2} = $notRegionIntHets.','.$notRegionAccHets;	
+		
+		## for every line you close and delete the tmp
+		close(TMP);
+		unlink($tmp);
+	}	
+}
+
+## output
+for my $check (sort keys %checkcols)
+{
+	print OUTPUT "$check\n";
+}
+
+my $pwd = getcwd;
+print RSCRIPT "setwd(\"$pwd\")\n";
+for my $ftest (sort keys %TwobyTwoTableCol1)
+{
+	print OUTPUT "$ftest|$TwobyTwoTableCol1{$ftest},";
+	print OUTPUT "$TwobyTwoTableCol2{$ftest}\n";
+	
+	## print R script
+	print RSCRIPT "data <- matrix(c($TwobyTwoTableCol1{$ftest},$TwobyTwoTableCol2{$ftest}), 2,2,\n". 
+									"\t\tdimnames = list(Pathways = c(\"a\",\"non-a\"),SNPs = c(\"$ftest\",\"non-$ftest\")))\n".
+									"x = fisher.test\(data,alternative=\"two.sided\")\n".
+									"y = c(\"$ftest\",paste(x\$estimate),x\$p.value)\n".
+									"write(y,sep=\"\\t\",ncolumns=3,file=\"$name.fishersresults\",append=TRUE)\n";
+}
+
+
+
+close(RSCRIPT);
+close(INPUT);
+close(OUTPUT);
+close (REGIONS);

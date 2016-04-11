@@ -1,0 +1,183 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+imputeSplit
+
+=head1 SYNOPSIS
+
+  imputeSplit [options] -f <path> -c chromosome <.impute>
+
+  -h help
+  
+  <.impute>
+  SNP1 rs1 1000 A C 1 0 0 1 0 0
+  col1=snpid
+  col2=rsid
+  col3=snp pos (1-based)
+  col4=ref allele
+  col5=alt allele
+  col6-col8 = probabilities of AA AB BB for indiv 1
+  col9-col11 = probabilities of AA AB BB for indiv 2 etc.
+  
+  <path>
+  path you want IMPUTE to deposit the out file (for the qsub files)
+  
+  <chromosome>
+  
+  this script splits the impute into chunks of 5MB starting from the first SNP in the file
+  and with the last SNP.
+  
+  it also produces qsub file with the following hardcoded:
+  impute2
+ -phase \\
+ -m /net/gerstein/jc2296/privaseq/haplotypes/ALL.integrated_phase1_SHAPEIT_16-06-14.nosing/genetic_map_chr22_combined_b37.txt \\
+ -h /net/gerstein/jc2296/privaseq/haplotypes/ALL.integrated_phase1_SHAPEIT_16-06-14.nosing/ALL.chr22.integrated_phase1_v3.20101123.snps_indels_svs.genotypes.nosing.haplotypes.gz \\
+ -l /net/gerstein/jc2296/privaseq/haplotypes/ALL.integrated_phase1_SHAPEIT_16-06-14.nosing/ALL.chr22.integrated_phase1_v3.20101123.snps_indels_svs.genotypes.nosing.legend.gz \\
+ -g $newsplitfile \\
+ -int $start $end \\
+ -Ne 20000 \\
+ -o out.$newsplitfile
+  
+  "IMPUTE2 uses an internal buffer region of 250 kb on either side of the analysis interval 
+  to prevent edge effects; this means that data outside the region bounded by -int will 
+  contribute to the inference, but only SNPs inside that region will appear in the output."
+  
+  Example:
+     imputeSplit -f /net/gerstein/jc2296/privaseq/src/chr22 -c 22 /pred.impute
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $bedfile = '';
+my $path = '';
+my $chromo = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'f=s'=>\$path, 'c=i'=>\$chromo) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+##### input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## variables
+my %SNP;
+my $chunk = 5000000;
+
+while(<INPUT>)
+{
+	chomp $_;
+	my @fields = split(" ",$_);
+	chomp @fields;
+	
+	my $pos = $fields[2];
+	
+	$SNP{$pos} = $_;
+} # each row of input file
+close(INPUT);
+
+## split
+my $flag = 0;
+my $ctr = 0;
+my $start = 1;
+my $end = 1;
+for my $snppos (sort {$a <=> $b} keys %SNP)
+{
+	if(!$flag)
+	{
+		$flag = 1;
+		$start = $snppos;
+		$end = $snppos + $chunk;
+	}
+	
+	# create file
+	if($snppos >= $start && $snppos <= $end)
+	{
+		my $newsplitfile = "imputesplit-$start-$end.$ifile";
+	
+		if(-e "./$newsplitfile")
+		{ 
+	  	open (NEWBED, ">>$newsplitfile") || die "Cannot open $newsplitfile: $!";
+	  	
+	  	# print qsub file
+#	  	my $qsubfile1 = "bsub-impute-$newsplitfile.sh";
+#	  	my $chromoex = $chromo."_combined_b37";
+#			open(Q1, ">$qsubfile1") || die "Cannot open $qsubfile1: $!";
+#		print Q1 "bsub -W 1400 -q gerstein -o bsub-$newsplitfile.log -e bsub-$newsplitfile.err impute2 -phase -pgs -m /scratch/fas/gerstein/jc2296/privaseq/haplotypes/ALL.integrated_phase1_SHAPEIT_16-06-14.nosing/genetic_map_chr$chromoex.txt -h /scratch/fas/gerstein/jc2296/privaseq/haplotypes/ALL.integrated_phase1_SHAPEIT_16-06-14.nosing/ALL.chr$chromo.integrated_phase1_v3.20101123.snps_indels_svs.genotypes.nosing.haplotypes.gz -l /scratch/fas/gerstein/jc2296/privaseq/haplotypes/ALL.integrated_phase1_SHAPEIT_16-06-14.nosing/ALL.chr$chromo.integrated_phase1_v3.20101123.snps_indels_svs.genotypes.nosing.legend.gz -g $newsplitfile -int $start $end -Ne 20000 -o out.$newsplitfile";
+#			close(Q1)
+	  	
+		}
+		else
+		{
+			open (NEWBED, ">$newsplitfile") || die "Cannot open $newsplitfile: $!";
+			
+			my $qsubfile1 = "bsub-impute-$newsplitfile.sh";
+	  	my $chromoex = $chromo."_combined_b37";
+			open(Q1, ">$qsubfile1") || die "Cannot open $qsubfile1: $!";
+		print Q1 "bsub -W 1400 -q gerstein -o bsub-$newsplitfile.log -e bsub-$newsplitfile.err impute2 -phase -pgs -m /scratch/fas/gerstein/jc2296/privaseq/haplotypes/ALL.integrated_phase1_SHAPEIT_16-06-14.nosing/genetic_map_chr$chromoex.txt -h /scratch/fas/gerstein/jc2296/privaseq/haplotypes/ALL.integrated_phase1_SHAPEIT_16-06-14.nosing/ALL.chr$chromo.integrated_phase1_v3.20101123.snps_indels_svs.genotypes.nosing.haplotypes.gz -l /scratch/fas/gerstein/jc2296/privaseq/haplotypes/ALL.integrated_phase1_SHAPEIT_16-06-14.nosing/ALL.chr$chromo.integrated_phase1_v3.20101123.snps_indels_svs.genotypes.nosing.legend.gz -g $newsplitfile -int $start $end -Ne 20000 -o out.$newsplitfile";
+			close(Q1)
+		}
+		
+		print NEWBED "$SNP{$snppos}\n";
+	}
+	else
+	{
+		$start = $snppos;
+		$end = $snppos + $chunk;
+		#print "$flag|$snppos|$start|$end\n"; ##debug
+		
+		my $newsplitfile = "imputesplit-$start-$end.$ifile";
+		
+		# create file
+		if(-e "./$newsplitfile")
+		{ 
+	  	open (NEWBED, ">>$newsplitfile") || die "Cannot open $newsplitfile: $!";
+	  	
+			# print qsub file
+#	  	my $qsubfile2 = "bsub-impute-$newsplitfile.sh";
+#	  	my $chromoex = $chromo."_combined_b37";
+#			open(Q2, ">$qsubfile2") || die "Cannot open $qsubfile2: $!";
+#		print Q2 "bsub -W 1400 -q gerstein -o bsub-$newsplitfile.log -e bsub-$newsplitfile.err impute2 -phase -pgs -m /scratch/fas/gerstein/jc2296/privaseq/haplotypes/ALL.integrated_phase1_SHAPEIT_16-06-14.nosing/genetic_map_chr$chromoex.txt -h /scratch/fas/gerstein/jc2296/privaseq/haplotypes/ALL.integrated_phase1_SHAPEIT_16-06-14.nosing/ALL.chr$chromo.integrated_phase1_v3.20101123.snps_indels_svs.genotypes.nosing.haplotypes.gz -l /scratch/fas/gerstein/jc2296/privaseq/haplotypes/ALL.integrated_phase1_SHAPEIT_16-06-14.nosing/ALL.chr$chromo.integrated_phase1_v3.20101123.snps_indels_svs.genotypes.nosing.legend.gz -g $newsplitfile -int $start $end -Ne 20000 -o out.$newsplitfile";
+#
+#			close(Q2)
+			
+		}
+		else
+		{
+			open (NEWBED, ">$newsplitfile") || die "Cannot open $newsplitfile: $!";
+			my $qsubfile2 = "bsub-impute-$newsplitfile.sh";
+	  	my $chromoex = $chromo."_combined_b37";
+			open(Q2, ">$qsubfile2") || die "Cannot open $qsubfile2: $!";
+		print Q2 "bsub -W 1400 -q gerstein -o bsub-$newsplitfile.log -e bsub-$newsplitfile.err impute2 -phase -pgs -m /scratch/fas/gerstein/jc2296/privaseq/haplotypes/ALL.integrated_phase1_SHAPEIT_16-06-14.nosing/genetic_map_chr$chromoex.txt -h /scratch/fas/gerstein/jc2296/privaseq/haplotypes/ALL.integrated_phase1_SHAPEIT_16-06-14.nosing/ALL.chr$chromo.integrated_phase1_v3.20101123.snps_indels_svs.genotypes.nosing.haplotypes.gz -l /scratch/fas/gerstein/jc2296/privaseq/haplotypes/ALL.integrated_phase1_SHAPEIT_16-06-14.nosing/ALL.chr$chromo.integrated_phase1_v3.20101123.snps_indels_svs.genotypes.nosing.legend.gz -g $newsplitfile -int $start $end -Ne 20000 -o out.$newsplitfile";
+
+			close(Q2)
+		}
+		
+		print NEWBED "$SNP{$snppos}\n";
+	}
+	
+}
+
+close (NEWBED);

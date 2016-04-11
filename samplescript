@@ -1,0 +1,136 @@
+use strict;
+
+#opening an file
+open(IN1,"input.txt") || die "cannot open features\n";
+
+#opening an output file, notice that the > is the only difference
+open(OUT1,">output.txt") || die "cannot open features\n";
+
+#saving the input file into an array in which each element of the array coresponds to a line in the input file
+my @in1 = <IN1>;
+
+
+
+#initializing some variables arrays and a hash
+my $temp;
+my @sp;
+my %hash;
+my @peptides;
+my @scores;
+
+
+#for loop that iterates through all the elements in the in1 array
+#which goes through every line in the input file
+#I use the $# to get the last element of the array
+#inside the loop the first line saves the first line into variable temp
+#the second line remove next line character from end of that variable
+#third line splits the line into multiple strings separated by a tab and saves those strings into the array sp
+#the fourth line stores the first element (the peptide) into the specific position of the peptides array
+#the fifth line stores the matching score in the scores array
+#the sixth line store the peptide/score pair into a hash using the peptide as the key and the score as the value
+#the hash in this code is only being used to demonstrate how to use a hash
+for (my $i=0; $i<=$#in1; $i++)
+{
+	$temp = $in1[$i];
+	chomp $temp;
+	@sp = split(/\t/,$temp);
+	$peptides[$i] = $sp[0];
+	$scores[$i] = $sp[1];
+	$hash{$sp[0]} = $sp[1];
+}
+
+
+#new array that will store 1 or 0 based on peptide score
+my @newscores;
+
+
+#this loop simply goes through all scores and checks if they are more than 10000 and assigns 1 or 0 accordingly
+for (my $i=0; $i<=$#scores; $i++)
+{
+	if($scores[$i]>=10000)
+	{
+		$newscores[$i] = 1;
+	}
+	
+	else
+	{
+		$newscores[$i] = 0;
+	}
+}
+
+
+#this shows the access of a hash element
+print $hash{"AAAAAAARRQEQTLR"} . "this is the score\n";
+
+
+
+
+
+
+#features will hold the arrays of features for each peptide
+my @features;
+my @tempfeatures;
+
+my $result;
+my $offset;
+
+#this is the main loop that goes through all peptides and creates all the features for each peptide
+#it stores all these features into an array and at the end it pushes this array of featues
+#into the features array (which is an array of arrays)
+for (my $i=0; $i<=$#peptides; $i++)
+{
+
+#clearing out array
+	@tempfeatures=();	
+
+	$temp=0;
+
+#index function scnas a string from left to right and returns the position of the char or string passed to it
+#if none is found it returns -1
+	$result = index($peptides[$i],'A');
+	
+#this loop will find all the A's in the peptide and keep count with the temp variable
+	while($result != -1)
+	{
+		$temp++;
+		$offset = $result+1;
+		$result = index($peptides[$i],'A',$offset);
+	}
+#here I am pushing this first feature into the array
+	push @tempfeatures,$temp;
+	
+
+#next I do the same thing but for V instead of A and also push it in the array
+	$temp=0;
+        $result = index($peptides[$i],'V');
+        while($result != -1)
+        {
+                $temp++;
+                $offset = $result+1;
+                $result = index($peptides[$i],'V',$offset);
+        }
+        push @tempfeatures,$temp;
+	
+
+#after all the features are done I push the array of features for that peptide into the features array
+
+	push @features, [@tempfeatures];
+
+
+}
+
+
+#this is a sample output in which I access the array of arrays with features and print them out
+
+print OUT1 "This is the output file\n";
+
+
+for (my $i=0; $i<=$#features; $i++)
+{
+	for (my $j=0; $j<$#{$features[$i]}; $j++)
+	{
+		print OUT1 $features[$i][$j] . ",";
+	}
+	print OUT1 $features[$i][$#{$features[$i]}] . "\n";
+}
+

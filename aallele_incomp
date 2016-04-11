@@ -1,0 +1,154 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+aallele
+
+=head1 SYNOPSIS
+
+ aallele [options] -r <ref-ancestral-allele-file> <file>	
+
+  -h help
+  -r file with header 'allele-id' and 'allele'
+  <file> file with 2 columns, 'rs-id' and 'allele-id'
+  
+  Output an annotated file <file-a> that annotates the allele-id in <file> with ancestral allele from the reference file
+  
+  Example:
+     aallele -r Alleles.ref snps.list
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $refFile;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'r=s'=>\$refFile) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+open (REFER, $refFile) || die "Cannot open $refFile: $!";
+
+## output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+my $ofile = "$name-a$ext";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+# variables
+my $headerProcessed = 0;
+my $refheaderProcessed = 0;
+my $rsidCol = 0;
+my $alleleidCol = 0;
+
+# read ref file
+while (<REFER>)
+{
+	# process the header
+	if (!$refheaderProcessed)
+	{
+		my @headers = split(/\t/, $_);
+		chomp @headers;
+		
+		for (my $i=0; $i<@headers; $i++)
+		{
+			if ($headers[$i] eq 'allele-id')
+			{
+				$alleleCol = $i;
+			}
+		}
+		$refheaderProcessed = 1;
+	}
+}
+
+
+LINE: while (<INPUT>)
+{
+	my $firstcolprinted = 0;
+	# process the header
+	if (!$headerProcessed)
+	{
+		chomp;
+		print OUTPUT "$_\n";
+		
+		
+		
+		$headerProcessed = 1;
+		next LINE;
+	}
+	else
+	{
+		my @items = split("\t", $_);
+		chomp @items;
+		
+		print OUTPUT "$items[0]";
+				
+		for (my $i=1; $i<@items; $i++)
+		{
+			if ($items[$i] == 0)
+			{
+				if (!$ychr)
+				{
+					print OUTPUT "\t$alleles[0]$alleles[0]";
+				}
+				else
+				{
+					print OUTPUT "\t$alleles[0]";
+				}
+			}
+			elsif ($items[$i] == 2)
+			{
+				if (!$ychr)
+				{
+					print OUTPUT "\t$alleles[1]$alleles[1]";
+				}
+				else
+				{
+					print OUTPUT "\t$alleles[1]";
+				}		
+			}
+			elsif ($items[$i] == 1)
+			{
+				if (!$ychr)
+				{
+					print OUTPUT "\t$alleles[0]$alleles[1]";
+				}
+				else
+				{
+					print OUTPUT "\t\?";
+				}
+			}
+			elsif ($items[$i] == -1)
+			{
+				print OUTPUT "\tmissing";
+			}
+		}
+		print OUTPUT "\n";
+	}
+}
+
+close (INPUT);
+close (MK);
+close (OUTPUT);

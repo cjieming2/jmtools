@@ -1,0 +1,159 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+fasta-seqlength
+
+=head1 SYNOPSIS
+
+ fasta-stats [options] <fasta-file> 	
+
+  -h help
+  --full all stats for the numbers of each character in the sequence is output.
+      
+  This script calculates the length of a sequence, the number of lines and the number of bases per line in the FASTA file.
+  It is able to take in multiple FASTAs in 1 file.
+  Please output to a summary-stats file if there are more than one FASTA, else it will print onscreen.
+
+  
+  Example:
+     fasta-stats jm.fa > jm-output
+       
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $mkfile;
+my $full = '';
+
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'full'=>\$full) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input files
+my $ifile = $ARGV[0];
+print "===========> $ifile <===========\n";
+
+open (INPUT, $ifile) || die "Cannot open $ifile:$!";
+
+
+my($faname, $fapath, $faext) = fileparse($ifile, '\..*');
+	
+## variables
+my $seqlenctr=0;
+my $perline=0;
+my $count=0;
+my $flag=0;
+my ($numA, $numC, $numG, $numT, $numN, $numdash, $other) = (0,0,0,0,0,0,0);
+
+## read FASTA file to obtain sequence
+ITER:while(<INPUT>)
+{
+	chomp $_;
+	my @line = split(//,$_);
+	
+	if($line[0] eq ">") ## header
+	{
+#		if($count!=0)
+#		{
+#			printnucleo($count, $perline, $numA,$numC,$numG,$numT,$numN,$numdash,$other,
+#					@sequence);
+#		}
+		
+		$perline=0; ##number of bases per line
+		$count=0;
+		$flag=0; 
+		($numA, $numC, $numG, $numT, $numN, $numdash, $other) = (0,0,0,0,0,0,0);
+
+		print "$_\n";
+		next ITER;
+	}
+	else ## non-header
+	{
+		$seqlenctr = $seqlenctr + $#line + 1;
+		if($full)
+		{
+			for my $i (@line)
+			{
+				if($i eq 'A' || $i eq 'a')
+				{
+					$numA++;
+				}
+				elsif($i eq 'C' || $i eq 'c')
+				{
+					$numC++;
+				}
+				elsif($i eq 'G' || $i eq 'g')
+				{
+					$numG++;
+				}
+				elsif($i eq 'T' || $i eq 't')
+				{
+					$numT++;
+				}
+				elsif($i eq 'N' || $i eq 'n')
+				{
+					$numN++;
+				}
+				elsif($i eq "\-")
+				{
+					$numdash++;
+				}
+				else
+				{
+					$other++;
+				}
+			}
+		} ## if no --length
+		
+		#push(@sequence, @line);
+		
+		if(!$flag) ## flag the first line to count number of bases in one line
+		{
+			$perline=$#line + 1;
+			$flag = 1;
+		}
+		
+		$count++;
+	}## else non-header
+
+}## while each line of file
+
+
+print "The sequence length is ".$seqlenctr."\n";
+print "The number of lines (with sequence) is ".$count."\n";
+print "The number of bases in each line is ".$perline."\n";
+	
+if($full)
+{
+	print "The number of A in the sequence = ".$numA."\n";
+	print "The number of C in the sequence = ".$numC."\n";
+	print "The number of G in the sequence = ".$numG."\n";
+	print "The number of T in the sequence = ".$numT."\n";
+	print "The number of N in the sequence = ".$numN."\n";
+	print "The number of - in the sequence = ".$numdash."\n";
+	print "The number of other characters in the sequence = ".$other."\n";
+}
+			
+close (INPUT);

@@ -1,0 +1,146 @@
+#!/usr/bin/perl -w
+
+use warnings;
+use strict;
+use fralib;
+use Getopt::Long;
+use File::Basename;
+use Pod::Usage;
+
+=head1 NAME
+
+fastqfilter
+
+=head1 SYNOPSIS
+
+ fastqfilter [options] -v <fastq> <list of reads> 
+
+  -h  help
+  <fastq> this is strictly a fastq file, use you can use zcat and pipe in the output
+  -v <list of reads> a list of reads you want to remove; without header and no prefix "@"
+  
+  	script not efficient right now
+  
+  example: fastqfilter -v reads.list rnaseq.fastq | gzip -c > rnaseq.new.fastq.gz
+        
+=head1 DESCRIPTION
+
+=cut
+
+my $help;
+my $mode = 1;
+my $list = '';
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'l=s'=>\$list) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+# read list of read names
+open(LIST, $list) || die "$list cannot be opened";
+
+
+## variables
+my @READS;
+
+## loop read list
+while(<LIST>)
+{
+	chomp $_;
+	
+	# strip out >
+	s/^>//g; 
+	s/>$//g;
+	if (!length($_)) # skip if empty line
+	{
+		print "\n";
+		next;
+	}
+
+	## store
+	push(@READS, $_);	
+}## end of one line 
+close(LIST);
+
+
+## loop fastq
+my $ifile = $ARGV[0];
+open(IN, $ifile) || die "$ifile cannot be opened: $!";
+
+## variables
+my $ctr = 3;
+my $removed = 0;
+
+ITER:while(<IN>)
+{
+	chomp $_;	
+	
+	### no reads to filter
+	## keep printing
+	if(!(@READS) && ($ctr == 3))
+	{
+		print "$_\n";
+		next ITER;
+	}
+	
+	
+	## if it's a header
+	## note that some quality score line starts with @ as well!!
+	## use alternative counting
+		if(($_ =~ m/^@/) && ($ctr == 3))
+		{
+			$ctr--;
+			$removed = 0;
+			
+			## check if it's in filter list
+			for (my $i=0;$i<@READS;$i++)
+			{
+				my $read = "\@$READS[$i]";
+				if($read eq $_)
+				{
+					$removed = 1;
+					splice(@READS,$i,1);
+					next ITER;
+				}
+			}
+		}
+		elsif($removed == 1) ## not header and those removed
+		{
+			#print "$_||$ctr||$removed\n"; #debug
+			$ctr--;
+			
+			if($ctr == -1)
+			{
+				$ctr = 3;
+				$removed = 0;
+			}
+			next ITER;
+		}
+		else ## not header and not removed
+		{
+			$ctr--;
+		}
+	
+	
+	### print
+	print "$_\n";
+	
+	if($ctr == -1)
+	{
+		$ctr = 3;
+		$removed = 0;
+	}
+}
+
+#print "@READS\n";#debug
+close(IN);

@@ -1,0 +1,135 @@
+#!/usr/bin/perl -w
+
+use strict;
+use warnings; 
+use fralib;
+use Getopt::Long;
+use Pod::Usage;
+use File::Basename;
+
+=head1 NAME
+
+TGnearMonoSearch4vik
+
+=head1 SYNOPSIS
+
+TGnearMonoSearch4vik [options] <TG file>
+
+   -h    displays this help page
+   
+            
+   Example:
+           nearMonoSearch geno.tg
+      
+Takes in a TG file and finds the 1 sample that causes the SNP to be non-monomorphic.
+Note that the TG file should be a sieved TG, such that the it contains only SNPs that are near monomorphic.
+
+Outputs <filename>-near-mono-samples.txt, with the snp-id and sample-id.
+
+=head1 DESCRIPTION
+
+=cut
+
+# option variables
+my $help = 0;
+
+# command line error handling
+if (!GetOptions ('h'=>\$help) || scalar(@ARGV!=1))
+{
+	if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+# input file
+my $tgFile = $ARGV[0];
+isTg($tgFile) || die "$tgFile is not a TG file: $!";
+
+open(INPUT, $tgFile) || die "Cannot open file $tgFile: $!";
+
+# output file
+my($name, $path, $ext) = fileparse($tgFile, '\..*');
+my $ofile = "$name-near-mono-samples.txt";
+open(OUTPUT, ">$ofile") || die "Cannot open file $ofile: $!";
+print OUTPUT "snp-id\tsample-id\tgenotype\n";
+
+# variables
+my $headerProcessed = 0;
+my @samples=();
+my @sample=();
+my @count=();
+my $output = 0;
+
+# reads input tg file
+while (<INPUT>)
+{
+	# process header which is incidentally also the sample-ids
+	if (!$headerProcessed)
+	{
+		# note that the first item in this array is the row header 'snp-id'
+		@samples = split(/\t/, $_);
+		chomp @samples;
+		
+		$headerProcessed = 1;
+	}
+	else # the header is processed already
+	{
+		$output = 1;
+		# initialise with every row in file
+		#map { $count{$_} = 0 } keys %count;
+		for my $i (@count)
+		{
+			$i = 0;
+		}
+		
+		# search each row (SNP) for the '1' or missing
+		my @items = split(/\t/, $_);
+		chomp @items;
+		
+		# prints the snp-id to output file
+		print OUTPUT "$items[0]\t";
+		
+		# iterate the line/row
+		LINE: for(my $i=1; $i<@items; $i++)
+		{
+			if($items[$i]=='-1')
+			{
+				next LINE;
+			}
+			elsif($items[$i]=='0')
+			{
+				$sample[0] = $samples[$i];
+				$count[0] ++;
+			}
+			elsif($items[$i]=='1')
+			{
+				$sample[1] = $samples[$i];
+				$count[1] ++;
+			}
+			elsif($items[$i]=='2')
+			{
+				$sample[2] = $samples[$i];
+				$count[2] ++;
+			}
+		}
+	} #else; finish reading one line
+	
+	if ($output == 1)
+	{
+		foreach my $i (0,1,2)
+		{
+			if ($count[$i] == 1)
+			{
+				print OUTPUT "$sample[$i]\t$i\n";
+			}
+		}
+	}
+}#while; finish reading file
+
+close(INPUT);
+close(OUTPUT);

@@ -1,0 +1,99 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+filter2tsv4allele
+
+=head1 SYNOPSIS
+
+ filter2tsv4allele [options] <file>	
+
+  -h help
+  
+  for a specific file format:
+  combined_CTCF
+  1550 interestingHets.bed
+   403 interestingHets.nonpeaks.bed
+  1147 interestingHets.peaks.bed
+  1551 interestingHets.txt
+  4651 total
+peaks/sorted.wgEncodeCtcf.Combined.narrowPeak.gz
+189571
+                
+ found here: /scratch/fas/gerstein/jc2296/alleleseq_runs/12878/yongkong_datadump_louise_NA12878_hiseq/chipseq-AS
+ 
+  Example:
+     filter2tsv4allele filterByPeaks.log
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+my $ofile = "$name.tsv";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+print OUTPUT "folder\tpooled\tnonpeaks\tpeaks\tnumPeaks\n";
+
+# variables
+my $firstlineflag 	= 1;
+my $eightlineflag 	= 0;
+	
+# read file
+while (<INPUT>)
+{
+	s/\r?\n?$//;
+	
+	if($firstlineflag)
+	{
+		print OUTPUT $_;
+		$firstlineflag = 0;
+		next;
+	}
+	
+	if($_ =~ m/(\d+) (interestingHets|counts)\.bed/)						{		print OUTPUT "\t$1"; next;	}
+	if($_ =~ m/(\d+) (interestingHets|counts)\.nonpeaks\.bed/)	{		print OUTPUT "\t$1"; next;	}
+	if($_ =~ m/(\d+) (interestingHets|counts)\.peaks\.bed/)		{		print OUTPUT "\t$1"; next;	}
+	if($_ =~ m/^peaks\//)															{		$eightlineflag = 1; next;	}
+	
+	if($eightlineflag)
+	{
+		print OUTPUT "\t$_\n";
+		$firstlineflag = 1;
+		$eightlineflag = 0;
+		next;
+	}
+}
+
+close(INPUT);
+close(OUTPUT);
+	

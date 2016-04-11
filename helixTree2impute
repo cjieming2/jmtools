@@ -1,0 +1,245 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+helixTree2impute
+
+=head1 SYNOPSIS
+
+ helixTree2impute [options] <helixTree-dsf>	
+
+  -h help
+  -o output file name (optional); default is <helixTree-dsf> basefilename.imp
+  -s snp information
+     a) snp-id
+     b) position
+     c) alleles
+  
+  <helixTree-dsf> 
+  DSF format
+  - Extension is .dsf
+  - tab-delimited
+  - rows are samples, columns are SNPs
+  - first col and row is 'SampleID'.
+  - each genotype is denoted A_A, A_B, B_B for allele A and allele B and ?_? for missing.
+  
+  This script converts helixTree DSF file format to IMPUTE input format. 
+  Please make sure the SNPs in DSF file are from a single chromosome.
+  
+  Output files:
+  1) .imp file; space delimited IMPUTE input file format.
+  2) .log file; contains SNPs that were problematic and were dropped in the final .imp file.
+  
+  Example:
+     helixTree2impute -s geno.mk geno.dsf
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $output = '';
+my $markerfile = '';
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'o=s'=>\$output, 's=s'=>\$markerfile) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+
+if($output eq '')
+{
+	$output = "$name.imp";
+}
+else
+{
+	# output is user-defined
+}
+
+## variables
+my @snplist;
+my %genotypes;
+my %dsfalleles;
+my %snp2col;
+my $samplectr = 0;
+my $logfile = "$name-helixTree2impute.log";
+
+while(<INPUT>)
+{
+	chomp $_;
+	my @fields = split("\t",$_);
+	chomp @fields;
+		
+	if($. == 1)
+	{
+		if($fields[0] ne "SampleID")
+		{
+			die "$ifile not DSF helixTree file!: $!";
+		}
+		else
+		{
+			for (my $i=1;$i<@fields;$i++)
+			{
+				push(@snplist, $fields[$i]);
+			}
+		}
+		
+	}
+	else
+	{
+		for (my $i=1;$i<=$#fields;$i++)
+		{
+			#print "|$snplist[$i-1]|$samplectr|$fields[$i]|\n"; #debug
+			
+			my @dsf = split("\_", $fields[$i]);
+			chomp @dsf;
+			
+			if($dsf[0] gt $dsf[1])
+			{
+				my $temp = $dsf[0];
+				$dsf[0] = $dsf[1];
+				$dsf[1] = $temp;
+			}
+			
+			$genotypes{$snplist[$i-1]}{$samplectr} = "$dsf[0]_$dsf[1]";
+			#print "$#fields|$i|$snplist[$i-1]|$samplectr|$genotypes{$snplist[$i-1]}{$samplectr}|\n"; #debug
+		} # for loop store geno
+	} # else loop rows/samples
+	$samplectr++;
+} # each row of DSF file
+close(INPUT);
+
+### debug
+#for my $k (@snplist)
+#{
+#	print "$k\n";
+#}
+
+## output file
+open (IMP, ">$output") || die "Cannot open $output: $!";
+open (LOGF, ">$logfile") || die "Cannot open $logfile: $!";
+
+## open marker file
+open (MK, $markerfile) || die "Cannot open $markerfile: $!";
+
+# marker variables
+my %mkfield2col;
+my $geno;
+my %problematic;
+my %snp2line;
+
+while (<MK>)
+{
+	chomp $_;
+	my @mkfields = split("\t", $_);
+	chomp @mkfields;
+	
+	## mkheader
+	if($. == 1)
+	{
+		SEARCH_LABEL: for my $item ('snp-id', 'position', 'alleles')
+		{
+			for (my $j=0; $j<@mkfields; $j++)
+			{
+				if($item eq $mkfields[$j])
+				{
+					$mkfield2col{$item} = $j;
+					next SEARCH_LABEL;
+				}
+			}
+			
+			die "Cannot find $item in $markerfile";
+		}
+	}
+	else ## non-header
+	{
+		## print OUTPUT		
+				my $snp = $mkfields[$mkfield2col{'snp-id'}];
+				
+				if(exists($genotypes{$snp}))
+				{	
+						my $position = $mkfields[$mkfield2col{'position'}];
+						my $alleles = $mkfields[$mkfield2col{'alleles'}];
+						my @allele = split(/\//, $alleles);
+						chomp @allele;
+						
+						my $alleleA = $allele[0];
+						my $alleleB = $allele[1];
+
+				    $snp2line{$snp} = "$snp $snp $position $alleleA $alleleB";
+				    
+						for (my $k=1;$k<$samplectr;$k++)
+						{
+						
+							#print "|$snp|$k|$genotypes{$snp}{$k}|$alleleA|$alleleB|\n"; #debug		
+													
+							if($genotypes{$snp}{$k} eq "$alleleA\_$alleleA")
+							{
+								$snp2line{$snp} = "$snp2line{$snp} 1 0 0";
+							}
+							elsif($genotypes{$snp}{$k} eq "$alleleA\_$alleleB")
+							{
+								$snp2line{$snp} = "$snp2line{$snp} 0 1 0";
+							}
+							elsif($genotypes{$snp}{$k} eq "$alleleB\_$alleleB")
+							{
+								$snp2line{$snp} = "$snp2line{$snp} 0 0 1";
+							}
+							elsif($genotypes{$snp}{$k} eq "\?\_\?")
+							{
+								$snp2line{$snp} = "$snp2line{$snp} 0 0 0";
+							}
+							else
+							{
+								$snp2line{$snp} = -1;
+								$problematic{$snp} = "$genotypes{$snp}{$k} and $alleleA\/$alleleB";
+							}
+							#print "$snp|$snp2line{$snp}\n"; #debug
+						}
+						
+				} # if snp exists in input file
+							
+	} # else mk non-header 
+} # each row/snp in mk file
+
+for (my $i=0;$i<@snplist;$i++)
+{
+	if(exists($snp2line{$snplist[$i]}) && ($snp2line{$snplist[$i]} ne -1))
+	{
+		print IMP "$snp2line{$snplist[$i]}\n";
+	}
+	elsif(!exists($snp2line{$snplist[$i]}))
+	{
+		print LOGF "$snplist[$i] found in $ifile not found in $markerfile\n";
+	}
+}
+
+for my $thing (sort(keys %problematic))
+{
+	print LOGF "$thing has incompatible allele annotation in marker and DSF file: output missing! $problematic{$thing}\n";
+}
+
+close(IMP);
+close(LOGF);

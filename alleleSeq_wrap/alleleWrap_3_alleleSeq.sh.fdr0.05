@@ -1,0 +1,59 @@
+## this wrapper script preps for and runs PIPELINE.mk.fdr0.05 in AlleleSeq pipeline
+## do this in the directory of the personal genome
+## in another folder for allele runs, create new folders for each TF then direct the path to the PIPELINE.mk.fdr0.05 found in the personal genome
+## USAGE: alleleWrap_alleleSeq <1> <2> <3> <4>
+## <1> = where to find AlleleSeq software and PIPELINE.mk.fdr0.05
+## <2> = snp.calls
+## <3> = path for cnv_rd
+## <4> = sample
+## e.g. ./alleleWrap_3_alleleSeq.sh /home/fas/gerstein/jc2296/software/AlleleSeq_pipeline_v1.1 /scratch/fas/gerstein/jc2296/personal_genomes/trio_variants/trio_pcr_free_from_broad_hg19_130728/CEU.wgs.HaplotypeCaller_bi.20130520.snps_indels.high_coverage_pcr_free.genotypes.pass.vcf /scratch/fas/gerstein/jc2296/personal_genomes/test/cnv_rd_NA12878_miseq_pcr_free_131313/rd.cnvnator.miseq.NA12878.snp.calls.old NA12878
+
+## vcf2snp input
+#vcf2snp $3 > snp.calls
+
+## remember to make changes to PIPELINE.mk.fdr0.05
+#make -f PIPELINE.mk.fdr0.05 >& OpenChrom_cMyc.log
+
+## print PIPELINE.mk.fdr0.05
+CURR=$(pwd)
+echo  > PIPELINE.mk.fdr0.05
+echo BASE\=$CURR >> PIPELINE.mk.fdr0.05
+echo PL\:=$1 >> PIPELINE.mk.fdr0.05
+echo SNPS\:=$2 >> PIPELINE.mk.fdr0.05
+echo CNVS\:=$3 >> PIPELINE.mk.fdr0.05
+echo BNDS\:=hits.bed >> PIPELINE.mk.fdr0.05
+echo MAPS\:=\$\(BASE\)/%s_$4.map >> PIPELINE.mk.fdr0.05
+echo FDR_SIMS\:=6 >> PIPELINE.mk.fdr0.05
+echo FDR_CUTOFF\:=0.05 >> PIPELINE.mk.fdr0.05
+echo  >> PIPELINE.mk.fdr0.05
+echo sourcefiles \:= \$\(wildcard *.fastq.gz\) >> PIPELINE.mk.fdr0.05
+echo countfiles \:= \$\(subst .fastq.gz,.cnt,\$\(sourcefiles\)\) >> PIPELINE.mk.fdr0.05
+echo  >> PIPELINE.mk.fdr0.05
+echo %.cnt\:%.fastq.gz >> PIPELINE.mk.fdr0.05
+echo -e '\t'bash -c \"python \$\(PL\)\/MergeBowtie.py \\ >> PIPELINE.mk.fdr0.05
+echo -e '           '\<\(\$\(PL\)\/filter_input.sh \$\(PL\) \$\< \| bowtie --best --strata -v 2 -m 1 -f \$\(BASE\)\/AltRefFather\/AltRefFather - \) \\ >> PIPELINE.mk.fdr0.05
+echo -e '           '\<\(\$\(PL\)\/filter_input.sh \$\(PL\) \$\< \| bowtie --best --strata -v 2 -m 1 -f \$\(BASE\)\/AltRefMother\/AltRefMother - \) \\ >> PIPELINE.mk.fdr0.05
+echo -e '           '\$\(MAPS\) \| python \$\(PL\)\/SnpCounts.py \$\(SNPS\) - \$\(MAPS\) \$@\" >> PIPELINE.mk.fdr0.05
+echo  >> PIPELINE.mk.fdr0.05
+echo all\: interestingHets.txt >> PIPELINE.mk.fdr0.05
+echo  >> PIPELINE.mk.fdr0.05
+echo check\: >> PIPELINE.mk.fdr0.05
+echo -e '\t'@echo \$\(sourcefiles\) >> PIPELINE.mk.fdr0.05
+echo  >> PIPELINE.mk.fdr0.05
+echo counts.txt\: \$\(countfiles\) >> PIPELINE.mk.fdr0.05
+echo -e '\t'python \$\(PL\)\/CombineSnpCounts.py 5 \$\(SNPS\) \$\(BNDS\) \$\(CNVS\) counts.txt counts.log \$\(countfiles\) >> PIPELINE.mk.fdr0.05
+echo  >> PIPELINE.mk.fdr0.05
+echo \# calculate false discovery rates >> PIPELINE.mk.fdr0.05
+echo FDR.txt\: counts.txt >> PIPELINE.mk.fdr0.05
+echo -e '\t'python \$\(PL\)\/FalsePos.py counts.txt \$\(FDR_SIMS\) \$\(FDR_CUTOFF\) \> FDR.txt >> PIPELINE.mk.fdr0.05
+echo  >> PIPELINE.mk.fdr0.05
+echo interestingHets.txt\: counts.txt FDR.txt >> PIPELINE.mk.fdr0.05
+echo -e '\t'awk -f \$\(PL\)\/finalFilter.awk thresh=\$\(shell awk \'END {print \$\$6}\' FDR.txt\) \< counts.txt \> interestingHets.txt >> PIPELINE.mk.fdr0.05
+echo  >> PIPELINE.mk.fdr0.05
+echo clean\: >> PIPELINE.mk.fdr0.05
+echo -e '\t'@rm -f FDR.txt interestingHets.txt counts.txt >> PIPELINE.mk.fdr0.05
+echo  >> PIPELINE.mk.fdr0.05
+echo cleanall\: clean >> PIPELINE.mk.fdr0.05
+echo -e '\t'@rm -f *.cnt >> PIPELINE.mk.fdr0.05
+echo  >> PIPELINE.mk.fdr0.05
+echo .DELETE_ON_ERROR\: >> PIPELINE.mk.fdr0.05

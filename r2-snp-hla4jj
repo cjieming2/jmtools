@@ -1,0 +1,209 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+use Math::Complex;
+
+=head1 NAME
+
+r2-snp-hla4jj
+
+=head1 SYNOPSIS
+
+ r2-snp-hla4jj [options] <inputfile>	
+
+  -h help
+  -o output file name (optional); default is inputfilename.r2
+  -x name of first column
+  -y name of second column
+  -c boolean; 
+     comparison between snp-hla = default = 1
+     comparison between snp-snp = 0
+  
+  <inputfile>
+  - the input file is adapted from mhc_hcb.sites (providing the header) and mhc_hcb.for_marcos (decoded phased data from HAPMAP samples), both files are obtainable online from http://www.broadinstitute.org/mpg/tagger/mhc.html
+  - tab-delimited
+  - header starts with 'sample-id'
+  - phased data
+  - each sample is represented by 2 rows, <samplename>-hapA and <samplename>-hapB.
+  - each column is either SNP (A,C,G,T) or HLA allele (0701,0201...) 
+  
+  OUTPUT
+  - outputs counts of an allele of col1 and an allele of col2, together with the total number of haplotypes, a 2-by-2 table can be constructed.
+  
+  This script calculates the r2 value between SNPs, or SNP and HLA alleles.
+    
+  Example:
+     r2-snp-hla4jj chb-haplotype.txt -x rs1 -y HLA_1 -o output.r2
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $output = '';
+my $markerfile = '';
+my $col1name = '';
+my $col2name = '';
+my $compare = 1;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'o=s'=>\$output, 'x=s'=>\$col1name, 'y=s'=>\$col2name, 'c=i'=>\$compare) 
+    							|| scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+my ($name, $path, $ext) = fileparse($ifile, '\..*');
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## variables
+my %header2col;
+my $headnumcol = 0;
+my %col1col2counts;
+my %colcounts;
+my $total = 0;
+
+## unraveling the input
+IN: while(<INPUT>)
+{
+	chomp $_;
+	my @f = split("\t",$_);
+	chomp @f;
+	
+	if($. == 1)
+	{
+		$headnumcol = s/\t/\t/g;
+		SEARCH_LABEL: for my $item ($col1name, $col2name)
+		{
+			for (my $i=0;$i<@f;$i++)
+			{
+				if($f[$i] eq $item)
+				{
+					$header2col{$item} = $i;
+					next SEARCH_LABEL;
+				} # find col number
+			} # loop all fields to find
+			die "$item not found in header of $ifile: $!";
+		} # find col1 col2
+	} # if header
+	else
+	{
+		$total++;
+		
+		## exception to count columns
+		my $numcol = s/\t/\t/g;
+		if($headnumcol != $numcol)
+		{
+			die "number of columns in row $. not the same as header line: $!";
+		} 
+		
+		my $col1info = $f[$header2col{$col1name}];
+		my $col2info = $f[$header2col{$col2name}];
+		my $col1col2info = "$col1info\-$col2info";
+		
+		## ripping out individual allele count
+		for my $item($col1name, $col2name)
+		{
+			if(!defined($colcounts{$item}{$f[$header2col{$item}]}))
+			{
+				$colcounts{$item}{$f[$header2col{$item}]} = 1;
+			}
+			else
+			{
+				$colcounts{$item}{$f[$header2col{$item}]}++;
+			}
+		} # loop col1 col2
+		
+		## ripping out combined haplo
+		if(!defined($col1col2counts{$col1col2info}))
+		{
+			$col1col2counts{$col1col2info} = 1;
+		}
+		else
+		{
+			$col1col2counts{$col1col2info}++;
+		}
+	}
+}
+close(INPUT);
+
+## output file
+if($output eq '')
+{
+	$output = "$name.r2";
+}
+else
+{
+	# leave it as the user-defined output
+}
+open (OUTPUT, ">$output") || die "Cannot open $output: $!";
+
+## r2 calculation
+if($total == 0)
+{
+	die "There are no samples in $ifile?!?!: $!";
+}
+
+my $pAB = 0;
+my $pA = 0;
+my $pB = 0;
+my $jmout;
+my %printflag;
+my @col;
+my $r2;
+
+print OUTPUT "$col1name-$col2name\tcount-pAB\tpAB".
+							"\tcount-pA\tpA".
+							"\tcount-pB\tpB\tr2\n";
+print "total number of haplotypes = $total\n";
+
+for my $jm (sort (keys %col1col2counts))
+{
+	$jmout = $jm;
+	$pAB = $col1col2counts{$jm}/$total;
+		
+	## $col[0] = col1 ; $col[1] = col2
+	@col = split("\-", $jm);
+		
+	$pA = $colcounts{$col1name}{$col[0]}/$total;
+	$pB = $colcounts{$col2name}{$col[1]}/$total;
+	
+	$r2 = (($pAB - $pA * $pB)/sqrt($pA * (1-$pA) * $pB * (1-$pB)))**2;
+	
+	## if snp-hla
+	if($compare && !defined($printflag{$col[1]}))
+	{
+		print OUTPUT "$jm";
+		print OUTPUT "\t$col1col2counts{$jm}\t$pAB";
+		print OUTPUT "\t$colcounts{$col1name}{$col[0]}\t$pA\t$colcounts{$col2name}{$col[1]}\t$pB";
+		print OUTPUT "\t$r2\n";
+		$printflag{$col[1]} = 1;
+	}
+}
+
+if(!$compare)
+{
+	print OUTPUT "$jmout";
+	print OUTPUT "\t$col1col2counts{$jmout}\t$pAB";
+	print OUTPUT "\t$colcounts{$col1name}{$col[0]}\t$pA\t$colcounts{$col2name}{$col[1]}\t$pB";
+	print OUTPUT "\t$r2\n";
+}
+
+close(OUTPUT);

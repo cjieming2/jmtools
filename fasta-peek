@@ -1,0 +1,116 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+fasta-peek
+
+=head1 SYNOPSIS
+
+ fasta-peek [options] <fastafile>
+
+  -h help
+  
+  -s start-position (1-based)
+  -e end-position (1-based)
+     
+  fasta-file required; 1 FASTA sequence per file.
+  if you require, multiple positions, please use fasta-make to generate.
+  Take a peek at the sequence from the start to the end positions.
+	
+  Example:
+     fasta-peek -s 1 -e 20 jm.fa 
+     
+
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $startpos = 1;
+my $endpos = 1; 
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 's=i'=>\$startpos, 'e=i'=>\$endpos) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## FASTA file (or string file if --string)
+my $fafile = $ARGV[0];
+open(FA, $fafile) || die "Cannot open $fafile";
+
+## fasta global variables
+my $faheaderProcessed = 0;
+my %faheader2col;
+my $flag = 0;
+my $ctr = 0;
+my $seq = '';
+
+my $contiglength = $endpos - $startpos + 1;
+			
+## exceptions
+if($contiglength <= 0)
+{
+	die "Start-pos= $startpos is beyond end-pos= $endpos: $!";
+}
+elsif($startpos == 0)
+{
+	die "Start position cannot be zero, because 1-based: $!";
+}
+			
+######################################FASTA############
+## read FASTA (or string file if --string) file to obtain sequence
+ITER:while(<FA>)
+{
+	chomp $_;
+	
+	## header
+	if((substr($_,0,1) eq ">") && ($flag==0))
+	{
+		$flag = 1;
+		next ITER;
+	}
+	elsif((substr($_,0,1) ne ">") && ($flag==0))
+	{
+		die "FASTA file (or string file if --string on) does not have title that starts with '>'!:$!";
+	}
+	else ## sequence
+	{
+		s/\r?\n?$//;
+	
+		$ctr = $ctr + length($_);
+		$seq = $seq.$_;
+		
+		if($ctr > $endpos){ last; }
+	}
+}## end of one line of fa file
+
+###########################################################
+### print sequence in 60s #################################
+my $outseq = substr($seq,$startpos-1,$contiglength);
+
+for(my $i=0;$i<length($outseq);$i+=60)
+{
+	## print in chunks of 60
+	print substr($outseq,$i,60), "\n";
+}
+
+close(FA);
+

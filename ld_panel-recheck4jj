@@ -1,0 +1,267 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use Getopt::Long;
+use Cwd;
+use File::Basename;
+use Pod::Usage;
+
+=head1 NAME
+
+ld_panel-recheck4jj
+
+=head1 SYNOPSIS
+
+ld_panel-recheck4jj [options] <ld-file>
+  
+ -h                 help
+ -m                 chip mk-file
+                    a)snp-id
+                    b)chromosome
+ -p                 HAPMAP mk-file
+                    a)snp-id
+                    b)chromosome
+ ld-file            HAPMAP-ld-formatted 
+                    filename of the form: ld_chr6_YRI.txt.gz
+                    Col1: Chromosomal position of marker1
+                    Col2: chromosomal position of marker2
+                    Col3: population code
+                    Col4: rs# for marker1
+                    Col5: rs# for marker2
+                    Col6: Dprime
+                    Col7: R square
+                    Col8: LOD
+                    Col9: fbin ( index based on Col1 )
+  
+ example: ld_panel-recheck4jj -m pscalare.mk -p hapmap.mk ld_chr1_CHB.txt.gz ld_chr2_CHB.txt.gz > pscalare.log
+ 
+ Situation arises when you combine the SNPs in HAPMAP with your own chip data, to calculate coverage of HAPMAP due to the rare SNPs or non-HAPMAP SNPs.
+ This script removes the line from the LD panel when marker1 and marker2 are found in your chip MK file, and either one of them is not found in HAPMAP MK file (the ones you used to combine).
+ It retains when both markers are found in both panels.
+ 
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $colNo;
+my $headerProcessed;
+my %label2Column;
+my $mkFile;
+my $hapmapmkFile;
+my %DEBUGGER;
+
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'm=s'=>\$mkFile, 'p=s'=>\$hapmapmkFile)
+   || !defined($mkFile) || scalar(@ARGV) < 1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+#$| = 1;
+
+#read snp annotation
+open(MK, $mkFile) || die "Cannot open $mkFile";
+$headerProcessed = 0;
+my %MKSNPS;
+
+while(<MK>)
+{
+    s/\r?\n?$//;
+    $colNo = s/\t/\t/g + 1;
+    
+   	my @fields = split('\t', $_, $colNo);
+    chomp @fields;
+    
+    if(!$headerProcessed)
+    {        
+             
+        SEARCH_LABEL: for my $label ('snp-id', 'chromosome')
+        {
+            for my $col (0 .. $#fields)
+            {
+                if ($fields[$col] eq $label)
+                {           
+                    $label2Column{$label}=$col;
+                    next SEARCH_LABEL;
+                }
+            }
+ 
+          	die "Cannot find '$label' in $mkFile";
+        }
+            
+            $headerProcessed = 1;
+    }
+    else
+    {
+    	$MKSNPS{$fields[$label2Column{'chromosome'}]}{$fields[$label2Column{'snp-id'}]} = 1;
+    }
+}
+close(MK);
+
+## read hapmap annotation
+open(HAPMAPMK, $hapmapmkFile) || die "Cannot open $mkFile";
+my $headerProcessedhapmap = 0;
+my %HAPMAPMKSNPS;
+
+while(<HAPMAPMK>)
+{
+    s/\r?\n?$//;
+   
+    $colNo = s/\t/\t/g + 1;
+            
+    my @fields = split('\t', $_, $colNo);
+    chomp @fields;
+        
+    if(!$headerProcessedhapmap)
+    {
+             
+        SEARCH_LABEL: for my $label ('snp-id', 'chromosome')
+        {
+            for my $col (0 .. $#fields)
+            {
+                if ($fields[$col] eq $label)
+                {           
+                    $label2Column{$label}=$col;
+                    next SEARCH_LABEL;
+                }
+            }
+ 
+          	die "Cannot find '$label' in $mkFile";
+        }
+            
+            $headerProcessedhapmap = 1;
+    }
+    else
+    {
+    	$HAPMAPMKSNPS{$fields[$label2Column{'chromosome'}]}{$fields[$label2Column{'snp-id'}]} = 1;
+    }
+}
+close(HAPMAPMK);
+
+## read zip files
+for my $file (@ARGV)
+{   
+    
+    my ($name, $path, $ext) = fileparse($file, '\..*');
+    
+    my $isZipped = $ext =~ /\.gz$/ ? 1 : 0;
+    
+    #ld_chr6_YRI.txt.gz
+    $name =~ /ld_chr(.*)_(.*)/;
+    my $chromosome = uc($1);
+   
+        
+    print "reading in chromosome $chromosome snps ...\n";
+		        
+    if($isZipped)
+    {
+        print "unzipping ...\n";
+        system("gunzip $file") == 0 || die "gunzip failed: $?";
+    }
+    
+    print "computing ...";   
+    
+    my %refDiscardhash;
+    
+    open(LD, "$path$name.txt") || die "Cannot open $file";
+    my $ofile = "$path$name";
+		open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+		
+    while(<LD>)
+    {
+    		my $ldflag = 0;
+    		
+        s/\r?\n?$//;
+
+        print "." if ($.%1000000==1);
+
+        #72434 78032 CHB rs4030303 rs940550 1.0 0.0 0.0 0        
+        my @fields = split(" ");
+        chomp @fields;
+        
+        my $marker1 = $fields[3];
+        my $marker2 = $fields[4];
+        
+        if(exists($MKSNPS{$chromosome}{$marker1}) && exists($MKSNPS{$chromosome}{$marker2}))
+        {
+        	if(exists($HAPMAPMKSNPS{$chromosome}{$marker1}) && exists($HAPMAPMKSNPS{$chromosome}{$marker2}))
+        	{
+        		print OUTPUT "$_\n";
+        	}
+        	else
+        	{
+        		## do not print
+        		
+        		##debug
+#        		if(exists($MKSNPS{$chromosome}{$marker1}))
+#        		{
+#        			$DEBUGGER{$marker1}=$chromosome;
+#        		}
+#        		elsif(exists($MKSNPS{$chromosome}{$marker2}))
+#        		{
+#        			$DEBUGGER{$marker2}=$chromosome; 
+#        		}
+#        		else
+#        		{
+#        			print "$marker1 and $marker2 weird...\n";
+#        		}
+        		#####
+        	}
+        }
+        else
+        {
+        	#print "$marker1=$MKSNPS{$chromosome}{$marker1} $marker2=$MKSNPS{$chromosome}{$marker2}\n"; ##debug
+        	print OUTPUT "$_\n";
+        }       	       	
+       	
+    }    
+    close(LD);
+    
+    
+
+    if($isZipped)
+    {
+        print "zipping ...\n";
+        system("wc -l $path$name.txt") == 0 || die "gzip failed: $?";
+        system("wc -l $ofile") == 0 || die "gzip failed: $?";
+        system("gzip $path$name.txt") == 0 || die "gzip failed: $?";
+    }    
+
+    print "done\n"; 
+}
+
+close(OUTPUT);
+
+## debug
+#my $debugfile = "A-only-snps.list"; ## debug
+#open (DEBUGLIST, ">$debugfile") || die "Cannot open $debugfile"; ##debug
+#
+#for my $i (keys %DEBUGGER)
+#{
+#	print DEBUGLIST "$i\t$DEBUGGER{$i}\n";
+#}
+#
+#for my $i (keys %HAPMAPMKSNPS)
+#{
+#	for my $j (keys %{ $HAPMAPMKSNPS{$i} } )
+#	{
+#		print DEBUGLIST "$i\t$j\n";
+#	}
+#}
+#
+#close (DEBUGLIST); 
+####

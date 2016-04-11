@@ -1,0 +1,202 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+mergeBed_strict
+
+=head1 SYNOPSIS
+
+ mergeBed_strict [options] <bedfile>	
+
+  -h help
+  
+  takes in a single (only SNP) bedfile with a tag on the 4th column
+  works like mergeBed, except it DOESNT allow for book-ended merge. 
+  i.e. merge is strictly by position
+  BED file MUST be sorted by chr, start (sortBed)
+  
+  -n default = 0; -n 1 adds a column counting num of times merged 
+  
+  -m 1; default = 0 ; merges files of this format: chr,start,end,occurrence,sample,winning
+     chr1    135203  135204  1       NA12878 G
+		 chr1    135031  135032  3       NA19093;HG00276;NA20543; G;G;G
+		 n option is obsolete here
+			
+ 
+  Example:
+     mergeBed_strict -n 1 combined.bed
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $n = 0;
+my $m = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'n=i'=>\$n, 'm=i'=>\$m) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+#my($name, $path, $ext) = fileparse($ifile, '\..*');
+#my $ofile = "$name.mergedStrict.bed";
+#open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+# variables
+my $firstline = 1;
+my $prevchr = '';
+my $prevsta = '';
+my $prevend = '';
+my $previnf = '';
+my $prevocc = '';
+my $prevsam = '';
+my $prevall = '';
+
+my $ctr = 1;
+	
+# read BED file
+if(!$m)
+{
+	while (<INPUT>)
+	{
+		s/\r?\n?$//;
+		my @fields = split(/\t/, $_);
+		
+		## check for 4 cols
+		if(scalar(@fields)<4)
+		{
+			die "there are less than 4 cols!:$!";
+		}
+		
+		if($firstline)
+		{ 
+			$prevchr = $fields[0];
+			$prevsta = $fields[1];
+			$prevend = $fields[2];
+			$previnf = $fields[3];
+			print "$prevchr\t$prevsta\t$prevend\t$previnf";
+			$firstline = 0;
+			next;
+		}
+		else
+		{
+			if(($prevchr eq $fields[0]) && 
+					($prevsta eq $fields[1]) && 
+					($prevend eq $fields[2]))
+			{
+				print ";$fields[3]";
+				$ctr++;
+			}
+			else
+			{
+				$prevchr = $fields[0];
+				$prevsta = $fields[1];
+				$prevend = $fields[2];
+				$previnf = $fields[3];
+				
+				if(!$n)
+				{
+					print "\n$prevchr\t$prevsta\t$prevend\t$previnf";
+				}
+				else
+				{
+					print "\t$ctr\n$prevchr\t$prevsta\t$prevend\t$previnf";
+				}
+				$ctr = 1;
+				next;
+			}
+					
+		}	
+	}
+	
+	if(!$n)
+	{
+		print "\n";
+	}
+	else
+	{
+		print "\t$ctr\n";
+	}
+}
+else ## when $m = 1 ; chr1    135203  135204  1       NA12878 G
+{
+	while (<INPUT>)
+	{
+		s/\r?\n?$//;
+		my @fields = split(/\t/, $_);
+		
+		## check for 4 cols
+		if(scalar(@fields)<4)
+		{
+			die "there are less than 4 cols!:$!";
+		}
+		
+		if($firstline)
+		{ 
+			$prevchr = $fields[0];
+			$prevsta = $fields[1];
+			$prevend = $fields[2];
+			$prevocc = $fields[3];
+			$prevsam = $fields[4];
+			$prevall = $fields[5];
+			$firstline = 0;
+			next;
+		}
+		else
+		{
+			## if next line same as prev line
+			if(($prevchr eq $fields[0]) && 
+					($prevsta eq $fields[1]) && 
+					($prevend eq $fields[2]))
+			{
+				$prevocc = $prevocc + $fields[3];
+				$prevsam = $prevsam.";".$fields[4];
+				$prevall = $prevall.";".$fields[5];
+			}
+			else
+			{
+				print "$prevchr\t$prevsta\t$prevend\t$prevocc\t$prevsam\t$prevall\n";
+				
+				$prevchr = $fields[0];
+				$prevsta = $fields[1];
+				$prevend = $fields[2];
+				$prevocc = $fields[3];
+				$prevsam = $fields[4];
+				$prevall = $fields[5];
+				next;
+			}
+					
+		}	
+	}
+	
+	## print last line
+	print "$prevchr\t$prevsta\t$prevend\t$prevocc\t$prevsam\t$prevall\n";
+}
+
+close(INPUT);
+	

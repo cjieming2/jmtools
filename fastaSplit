@@ -1,0 +1,120 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+fastaSplit
+
+=head1 SYNOPSIS
+
+ fastaSplit [options] <fastafile|referencefile>
+
+  -h help
+  
+  -p prefix; default is empty
+  
+splits a multi-FASTA file (e.g. 1KG fasta) into its constituent FASTAs based on ">". It uses user-input prefix and the header till the first space on ">"
+       
+  fastaSplit -p jm fastafile.fa
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $prefix = '';
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'p=s'=>\$prefix) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## FASTA file (or string file if --string)
+my $fafile = $ARGV[0];
+open(FA, $fafile) || die "Cannot open $fafile";
+
+## fasta global variables
+my $faheaderProcessed = 0;
+my %faheader2col;
+my @sequence=();
+my $flag = 0;
+my $nxflag = 0;
+my @newseq=();
+my $head;
+my $ofile;
+
+######################################FASTA############
+## read FASTA file to obtain sequence
+ITER:while(<FA>)
+{
+	chomp $_;
+	my @line = split(//,$_);
+	
+	if($line[0] eq ">")
+	{
+		if($nxflag)
+		{
+			close(OFILE);
+		}
+		
+		$head = join('',@line);
+		my @name = split(/ /,$_);
+		
+		## create output file based on header and prefix
+		$nxflag = 1;
+		$name[0] =~ s/\>//g;
+		$ofile = "$prefix$name[0].fa";
+		open(OFILE, ">$ofile") || die "Cannot open $ofile";
+		print OFILE "$head\n";
+		
+		$flag = 1;
+		next ITER;
+	}
+	elsif(($line[0] ne ">") && ($flag==0))
+	{
+		die "FASTA file does not have title that starts with '>'!:$!";
+	}
+	else
+	{
+		print OFILE "$_\n";
+	}
+}## end of one line of fa file
+close(FA);
+
+
+
+################################################################
+## printing
+sub printout
+{
+	my($OUTPUT, @seqtoprint) = (shift, @_[0..$#_]);
+	
+	for(my $i=0;$i<@seqtoprint;$i++)
+	{	
+		if(($i == 0) || (($i % 60)!=0)) ## if $i is not divisible by 60 keep printing
+		{
+			print $OUTPUT "$seqtoprint[$i]";
+		}
+		else ## if it is divisible by 60
+		{
+			print $OUTPUT "\n$seqtoprint[$i]";
+		}
+	}
+}

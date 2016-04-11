@@ -1,0 +1,222 @@
+#!/usr/bin/perl -w
+
+use warnings;
+use strict;
+use Getopt::Long;
+use File::Basename;
+use Pod::Usage;
+
+=head1 NAME
+
+blast2tsv
+
+=head1 SYNOPSIS
+
+ blast2tsv [options] <inputfile>
+
+  -h                     help
+  -o                     output file name (optional); default: <infilename>.blastout
+                      
+  <inputfile>            Blast output
+  
+  This script takes in a Blast (tried on blastp output) file and returns 
+  1) reference ID
+  2) sequence of subject 
+  3) sequence of query
+  4) description
+  5) database (e.g. gb or ref)
+  6) length of query
+  7) length of subject
+  8) Expectation
+  9) Score (Bit)
+  
+  This is an incomplete script:
+  1) modify to include more output from the Blast report
+  2) hasnt been tested on all the flavors of Blast
+  3) ** only for single-entry blast results, not catered to multiple-entries yet
+  4) ** gapped sequences
+  
+  OR you can definitely rewrite the code.
+  
+  example: blast2tsv jm_blosum45_blastResults.txt
+        
+=head1 DESCRIPTION
+
+=cut
+
+my $help;
+my $ifile;
+my $ofile;
+my $pattern;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'o=s'=>\$ofile, 'p=s'=>\$pattern) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+# read FASTA filename
+$ifile = $ARGV[0];
+
+my ($name, $path, $ext) = fileparse($ifile, '\..*');
+
+if (!defined($ofile))
+{
+	$ofile = "$name.blastout";
+}
+
+open(IN, "$ifile" || die "Cannot open $ifile\n");
+open(OUT, ">$ofile") || die "Cannot open $ofile\n";    
+print OUT "id\tspecies\tdatabase\tscore\texpect\tsubjlen\tquerylen\tpercentidentity\tqueryStart\tquerySeq\tdescription\n";
+
+# set the input record separator to >, so each "line" is >
+local $/ = "\n>";
+
+## variables
+my $querylen = 0;
+
+## loop blast output file
+ITER:while(<IN>)
+{
+	chomp $_;
+	
+	if($. == 1)
+	{
+		if(m/Length\=(.*)/g)
+		{
+			$querylen = trim($1);
+		}
+		
+		next;
+	}
+
+	# strip out >
+	next if !length($_); # skip if empty line
+	
+	my ($database,$id,$description,$species, @chunk);
+	## this is esp tricky; this captures >gb|AAY84832.1| neuroblastoma apoptosis-related protease [Homo sapiens]
+	if(m/^(.*)\s*\[(.*)\]/g) 
+	{
+		@chunk = split(/\|/,$1);
+		chomp @chunk;
+		$database = trim($chunk[0]);
+		$id = trim($chunk[1]);
+		$description = trim($chunk[2]);
+		$species = trim($2);
+	}
+	## >ref|NP_940863.3| LON peptidase N-terminal domain and RING finger protein 2 [Homo \n sapiens]
+	elsif(m/^(.*)\s*\[(.*)/g)
+	{
+		@chunk = split(/\|/,$1);
+		chomp @chunk;
+		$database = trim($chunk[0]);
+		$id = trim($chunk[1]);
+		$description = trim($chunk[2]);
+		$species = trim($2);
+		
+		if(m/(.*)\]/g)
+		{
+			my $snn = trim($1);
+			$snn =~ s/\[//;
+			$snn =~ s/\]//;
+			$species = join(' ',$species,$snn);
+		}
+	}
+	## this captures >ref|XP_002811742.1| PREDICTED: LON peptidase N-terminal domain and RING finger protein \n2-like [Pongo abelii]
+	elsif(m/^(.*)/g)
+	{
+		@chunk = split(/\|/,$1);
+		chomp @chunk;
+		$database = trim($chunk[0]);
+		$id = trim($chunk[1]);
+		$description = trim($chunk[2]);
+		
+		if(m/\[(.*)/g)
+		{
+			my $snn = $1;
+			$snn =~ s/\[//;
+			$snn =~ s/\]//;
+			$species = trim($snn);
+		}
+	}
+	
+	
+	my ($score,$expect);
+	if(m/Score.+\((.*)\)/g)
+	{		$score = trim($1);	}
+	
+	if(m/Expect\s*=\s*(.*)\,/g)
+	{	$expect = trim($1); };
+	
+	my ($subjlen,$percentidentity);
+	if(m/Identities\s*=.*\/(.*)\s\((.*)\%\)\,\sPositives/g)
+	{
+		$subjlen = trim($1);
+		$percentidentity = trim($2);
+	}
+	
+	my $queryStart;
+	if(m/Query\s*(\d*)/)
+	{	$queryStart = trim($1);	}
+	
+	# add prefix Z if querystart not equals 1
+	my $querySeq = '';
+	my $addZ = $queryStart-1;;
+	while($addZ)
+	{
+		$querySeq = $querySeq.'Z';
+		$addZ--;
+	}
+	while($_ =~ m/Sbjct\s*\d*\s*(\D*)\s*\d+/g)
+	{	
+		my $nn = trim($1);
+		
+		$querySeq = $querySeq.$nn;	
+	}
+	# add suffix Z if even after adding prefix Zs querylen not equals subjlen
+	my $lendiff = $querylen - $subjlen - $queryStart + 1;
+	die "$id has 0>$lendiff = $querylen - $subjlen - $queryStart + 1" if $lendiff<0;
+	while($lendiff)
+	{
+		$querySeq = $querySeq.'Z';
+		$lendiff--;
+	}
+	
+	print OUT "$id\t$species\t$database\t$score\t$expect\t$subjlen\t$querylen\t$percentidentity\t$queryStart\t$querySeq\t$description\n";
+}## end of one line of fa file
+
+close(IN);
+
+close(OUT);
+
+# Perl trim function to remove whitespace from the start and end of the string
+sub trim
+{
+	my $string = shift;
+	$string =~ s/^\s+//;
+	$string =~ s/\s+$//;
+	return $string;
+}
+# Left trim function to remove leading whitespace
+sub ltrim
+{
+	my $string = shift;
+	$string =~ s/^\s+//;
+	return $string;
+}
+# Right trim function to remove trailing whitespace
+sub rtrim
+{
+	my $string = shift;
+	$string =~ s/\s+$//;
+	return $string;
+}

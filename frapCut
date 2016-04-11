@@ -1,0 +1,91 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+frapCut
+
+=head1 SYNOPSIS
+
+frapCut <filename>
+
+	Example:
+		      frapCut geno.ped
+	
+  Ensure that the family and individual ID (first and second fields) 
+  in the FRAPPE input file <= 15 characters.
+  
+  The FRAPPE input file should be space delimited. PLINK recoded files are space delimited.
+  
+  Generates 2 files
+  1) <filename>-cut.ped with the new names and 
+  2) <filename>-ref.txt, showing the old and new file names
+  
+=head1 DESCRIPTION
+
+=cut
+
+# options variables
+my $help = 0;
+
+# initialise bundling
+Getopt::Long::Configure ("bundling");
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)==0)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+# input file
+my $ifile = $ARGV[0];
+open (INPUT, "$ifile") || die "Cannot open $ifile: $!";
+
+# probably wanna add in a check for the space-delimited file format
+
+# output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+#my @name  = split(/\./, $ifile, 2);
+my $ofile = "$name-cut$ext";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+# conversion file
+my $cfile = "$name-ref.txt";
+open (CONVERT, ">$cfile") || die "Cannot open $cfile: $!";
+print CONVERT "FAMILY_ID\tINDIVIDUAL_NAME\tNEW_FAMILY_NAME\tNEW_INDIVIDUAL_NAME\n";
+
+# open and read input file
+while (<INPUT>)
+{
+	my @items = split(/ /, $_ , 3);
+	chomp(@items);
+	
+	# check the family and ind ID
+	if (length($items[0])>15 || length($items[1])>15)
+	{
+		# note that the IND ID has 3 less char than FAM ID
+		print OUTPUT substr($items[0], 0, 15)." ".substr($items[1], 0, 12)." ".$items[2]."\n";
+		print CONVERT $items[0]."\t".$items[1]."\t".substr($items[0], 0, 15)."\t".
+		              substr($items[1], 0, 12)."\n";
+	}
+	else
+	{
+		print OUTPUT $_;
+	}
+}
+
+close (INPUT);
+close (OUTPUT);
+close (CONVERT);

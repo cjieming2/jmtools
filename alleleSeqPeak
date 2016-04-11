@@ -1,0 +1,161 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+alleleSeqPeak
+
+=head1 SYNOPSIS
+
+ alleleSeqPeak [options] 
+
+  -h help
+  
+  this aggregates the reads by maternal and paternal alleles; the rest of the alleles are disregarded 
+  info is taken from intersecting BED format of AlleleSeq output and peak format:
+  chrm	snppos	ref	mat_gtype	pat_gtype	phase	mat_all	pat_all	cA	cC	cG	cT	winning	SymCls	SymPval	BindingSite	cnv
+  chr	peakStart	peakEnd
+ 
+  if all hets (allele = 'None') pat and mat allele counts = 0
+  Example:
+     alleleSeqPeak 
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## read ensembl file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+
+## output file
+#my($name, $path, $ext) = fileparse($ifile, '\..*');
+#my $ofile = "$name.out";
+#open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+# variables
+my $headerProcessed = 0;
+my %peakid2MPcounts;
+my %peakid2snpid;
+my %peakid2winning;
+my %counts;
+my %peaks;
+my %peakid2snpcount;
+	
+## read ensembl file
+while (<INPUT>)
+{
+	s/\r?\n?$//;
+	my @fields = split(/\t/, $_);
+	chomp @fields; 
+	
+	my $snpid  = $fields[0]."-".$fields[1]."-".$fields[2];
+	my $peakid = $fields[19]."-".$fields[20]."-".$fields[21];
+	my $mat_all = $fields[8];
+	my $pat_all = $fields[9];
+	my $cA = $fields[10];
+	my $cC = $fields[11];
+	my $cG = $fields[12];
+	my $cT = $fields[13];
+	my $winning = $fields[14];
+		
+	# initialize store snp id
+	if(!exists($peakid2snpid{$peakid}))
+	{
+		$peakid2snpid{$peakid} = $snpid;
+		$peakid2snpcount{$peakid} = 1;
+	}
+	else
+	{
+		$peakid2snpid{$peakid} = "$peakid2snpid{$peakid};$snpid";
+		$peakid2snpcount{$peakid}++;
+	}
+	
+	# initialize store maternal and paternal alleles; note that any other alleles are disregarded
+	if(!exists($peakid2MPcounts{$peakid}{'mat'}))
+	{
+		if($mat_all eq 'A'){	$peakid2MPcounts{$peakid}{'mat'} = $cA;	}
+		elsif($mat_all eq 'C'){	$peakid2MPcounts{$peakid}{'mat'} = $cC;	}
+		elsif($mat_all eq 'G'){	$peakid2MPcounts{$peakid}{'mat'} = $cG;	}
+		elsif($mat_all eq 'T'){	$peakid2MPcounts{$peakid}{'mat'} = $cT;	}
+		else{ $peakid2MPcounts{$peakid}{'mat'} = 0;	} ## if all hets pat and mat allele = 0
+	}
+	else
+	{
+		if($mat_all eq 'A'){	$peakid2MPcounts{$peakid}{'mat'} = $peakid2MPcounts{$peakid}{'mat'} + $cA;	}
+		elsif($mat_all eq 'C'){	$peakid2MPcounts{$peakid}{'mat'} = $peakid2MPcounts{$peakid}{'mat'} + $cC;	}
+		elsif($mat_all eq 'G'){	$peakid2MPcounts{$peakid}{'mat'} = $peakid2MPcounts{$peakid}{'mat'} + $cG;	}
+		elsif($mat_all eq 'T'){	$peakid2MPcounts{$peakid}{'mat'} = $peakid2MPcounts{$peakid}{'mat'} + $cT;	}
+		else{ $peakid2MPcounts{$peakid}{'mat'} = $peakid2MPcounts{$peakid}{'mat'} + 0;	} ## if all hets pat and mat allele = 0
+	}
+	
+	if(!exists($peakid2MPcounts{$peakid}{'pat'}))
+	{
+		if($pat_all eq 'A'){	$peakid2MPcounts{$peakid}{'pat'} = $cA;	}
+		elsif($pat_all eq 'C'){	$peakid2MPcounts{$peakid}{'pat'} = $cC;	}
+		elsif($pat_all eq 'G'){	$peakid2MPcounts{$peakid}{'pat'} = $cG;	}
+		elsif($pat_all eq 'T'){	$peakid2MPcounts{$peakid}{'pat'} = $cT;	}
+		else{ $peakid2MPcounts{$peakid}{'pat'} = 0; } ## if all hets pat and mat allele = 0
+	} 
+	else
+	{
+		if($pat_all eq 'A'){	$peakid2MPcounts{$peakid}{'pat'} = $peakid2MPcounts{$peakid}{'pat'} + $cA;	}
+		elsif($pat_all eq 'C'){	$peakid2MPcounts{$peakid}{'pat'} = $peakid2MPcounts{$peakid}{'pat'} + $cC;	}
+		elsif($pat_all eq 'G'){	$peakid2MPcounts{$peakid}{'pat'} = $peakid2MPcounts{$peakid}{'pat'} + $cG;	}
+		elsif($pat_all eq 'T'){	$peakid2MPcounts{$peakid}{'pat'} = $peakid2MPcounts{$peakid}{'pat'} + $cT;	}
+		else{	$peakid2MPcounts{$peakid}{'pat'} = $peakid2MPcounts{$peakid}{'pat'} + 0;	} ## if all hets pat and mat allele = 0
+	}	
+	
+	# initialize peak id 2 winning
+	if(!exists($peakid2winning{$peakid}))
+	{
+		$peakid2winning{$peakid} = $winning;
+	}
+	else
+	{
+		$peakid2winning{$peakid} = "$peakid2winning{$peakid};$winning";
+	}
+	
+	# initialize peakid
+	if(!exists($peaks{$peakid}))
+	{
+		$peaks{$peakid} = 1;
+	}			
+}
+close(INPUT);
+
+## printing
+print "peakid\tcMat\tcPat\twins\tsnpid\tsnpcounts\n";
+for my $key (keys %peaks)
+{
+	print "$key\t".
+				"$peakid2MPcounts{$key}{'mat'}\t".
+				"$peakid2MPcounts{$key}{'pat'}\t".
+				"$peakid2winning{$key}\t".
+				"$peakid2snpid{$key}\t".
+				"$peakid2snpcount{$key}\n";
+}

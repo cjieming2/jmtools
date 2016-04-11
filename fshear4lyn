@@ -1,0 +1,182 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+use Cwd;
+
+=head1 NAME
+
+fshear
+
+=head1 SYNOPSIS
+
+ fshear [options] <inputfile>	
+
+  -h help
+  
+  INPUT:
+  <inputfile>
+  tsv file 
+  - tab-delimited file only
+  - looks for columns 'protein-sequence' and 'gaps'
+  - column 'protein-sequence' should be delimited by '_'
+  - column 'gaps' should be delimited by ';'
+  - format follows output from fastaSmart2tsv4lyn
+  
+  -l length of sequence required; will warn if sequence is too short
+  -g gap size limit, only permit gap size BELOW it; default = 0
+  -i boolean; if 1, this is the *.indiv individual copies of sequence, then there is no 'gaps'; default = 0
+    
+  OUTPUT:
+  fshear-<inputfilename>
+  - prints only 3 columns 
+  --> 'id'
+  --> 'protein-sequence', cuts the sequence to a specific length
+  --> 'gaps' (if indiv, this is not included)
+                
+  Example:
+     fshear -l 40 -g 5 file.txt
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $gapsize = 0;
+my $len = 0;
+my $indiv = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'l=i'=>\$len, 'g=i'=>\$gapsize, 'i=i'=>\$indiv) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input list
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+my $ofile = "fshear-$name\.txt";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+if(!$indiv)
+{
+	print OUTPUT "protein-id\tgaps\tprotein-sequence\n";
+}
+else
+{
+	print OUTPUT "protein-id\tprotein-sequence\n";
+}
+
+## parse missing value
+if($len == 0)
+{
+	die "Please input a length to shear! :$!";
+}
+
+## variables
+my $headerprocessed = 0;
+my %header2col;
+my $gaps = 0;
+
+############## read input list ##############
+NEXTSEQ: while (<INPUT>)
+{
+	chomp $_;
+	my @fields = split(/\t/,$_);
+	
+	## header not processed
+	if(!$headerprocessed)
+	{
+		HEADER: for my $desired ('protein-id','protein-sequence','gaps')
+		{			
+			for (my $i=0;$i<@fields;$i++)
+			{
+				if($desired eq $fields[$i])
+				{
+					$header2col{$desired} = $i;
+					next HEADER;
+				}
+			}
+			
+			## indiv
+			if(($indiv == 1) && ($desired eq 'gaps'))
+			{
+				next HEADER;
+			}
+			
+			die "$desired not found!:$!";
+		}
+		$headerprocessed = 1;
+	}
+	else ## header processed
+	{
+		my $id = $fields[$header2col{'protein-id'}];
+		my $sequences = $fields[$header2col{'protein-sequence'}];
+		
+		## cater to indiv		
+		## filter gap sizes
+		if(!$indiv)
+		{
+			$gaps = $fields[$header2col{'gaps'}];
+			my @gaplist = split(/;/,$gaps);
+			for my $a (@gaplist)
+			{
+				if($a > $gapsize)
+				{
+					print "$id\tgaps\tmore than desired length ($gaps>$gapsize), skipping...\n";
+					next NEXTSEQ;
+				}
+			}
+		}
+		
+		## shear sequence
+		my @protseq = split(/_/,$sequences);
+		my @protseqnew;
+		for my $b (@protseq)
+		{
+			# if it's less than length sound out and skip
+			if(length($b) < $len)
+			{
+				my $bb = length($b);
+				print "$id\tproteinSequence\tless than desired length ($bb<$len), skipping...\n";
+				next NEXTSEQ;
+			}
+			else # else just substring the required length
+			{
+				my $cc = substr($b,0,$len);
+				push(@protseqnew,$cc);
+			}
+		}
+		
+		## print new protein seq (sheared)
+		print OUTPUT "$id";
+		if(!$indiv)
+		{
+			print OUTPUT "\t$gaps";
+		}
+		print OUTPUT "\t".join('_',@protseqnew)."\n";		
+	}
+	
+}
+
+
+close(OUTPUT);
+close(INPUT);
+	

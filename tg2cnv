@@ -1,0 +1,104 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+tg2cnv
+
+=head1 SYNOPSIS
+
+tg2cnv <filename>
+
+	Example:
+		      tg2cnv geno.tg
+	
+  Changes SNP genotypes in TG file or Birdsuite 'calls' file to Birdsuite CNV format, where (i,j) is each entry in the matrix.
+  'i' represents number of allele A and 'j' number of allele B.
+  
+  This script can take in any matrix file other than TG file, where columns are samples and rows are SNPs.
+  
+  Outputs a .cnv file
+  
+=head1 DESCRIPTION
+
+=cut
+
+# options variables
+my $help = 0;
+
+# initialise bundling
+Getopt::Long::Configure ("bundling");
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)==0)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+# input file
+my $ifile = $ARGV[0];
+open (IN, "$ifile") || die "Cannot open $ifile: $!";
+
+# probably wanna add in a check for the space-delimited file format
+
+# output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+#my @name  = split(/\./, $ifile, 2);
+my $ofile = "$name\.cnv";
+open (OUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+# variables
+my $headerProcessed = 0;
+
+# open and read input file
+while (<IN>)
+{
+	my @fields = split(/\t/,$_);
+	chomp @fields;
+	
+	# first field should be probeset_id
+	print OUT "$fields[0]";
+	
+	# if not in (i,j) format
+	if(!($fields[1] =~ /^\d$/))
+	{
+		for(my $i=1;$i<@fields;$i++)
+		{
+			print OUT "\t$fields[$i]";
+		}
+	}
+	else
+	{
+		for(my $i=1;$i<@fields;$i++)
+		{
+			if($fields[$i]=='0')
+			{
+				print OUT "\t2\,0";
+			}
+			elsif($fields[$i]=='1')
+			{
+				print OUT "\t1\,1";
+			}
+			elsif($fields[$i]=='2')
+			{
+				print OUT "\t0\,2";
+			}
+		}
+	}
+	print OUT "\n";
+}
+
+close (IN);
+close (OUT);

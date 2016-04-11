@@ -1,0 +1,301 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+dbsnp_sub-snpinduse
+
+=head1 SYNOPSIS
+
+ dbsnp_sub-snpinduse [options] -s <sa-file> -M <mk-file> <gaf-file>	
+
+  -h help
+  -s SA file
+  -M MK file
+  -h submission handle (case-sensitive)
+  -t method handle (case-sensitive)
+  -b batch (case-sensitive)
+  
+  SA file required for sample information. This assumes that all are human samples (TAXON=9606) and are outbreds (breeding structure).
+  -- population-abbreviation, collection-locale, ethnicity
+  METHOD section needs to be filled in manually, where HANDLE and METHOD are mandatory. ID is automatically added with option -t.
+  MK file required for marker information. Make sure the marker information is the header. Assume RS_STRAND_FWD.
+  -- rs-id, alleles
+  GAF file SNP ID is in rs-id and contains the populations in question.
+  
+  Warning signs will appear if the numbers in MK and SA do not tally with TG file.
+  
+  
+  Example:
+     dbsnp_sub-snppopuse -b PASNP_1 -h PASNPI -t AFFY_ASSAY -M markers.mk -s samples.sa geno.gaf
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $saFile;
+my $mkFile;
+my $myhandle;
+my $methandle;
+my $batch;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, , 'M=s'=>\$mkFile, 'b=s'=>\$batch, 't=s'=>\$methandle, 's=s'=>\$saFile, 'h=s'=>\$myhandle) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $gaffile = $ARGV[0];
+
+## check if it's TG format: i.e. first header 'snp-id', ext .tg
+#if(!isTg($tgfile))
+#{
+#	die "$tgfile not a tg file";
+#}
+
+#open (INPUT, $tgfile) || die "Cannot open $tgfile: $!";
+open (SA, $saFile) || die "Cannot open $saFile: $!";
+open (MK, $mkFile) || die "Cannot open $mkFile: $!";
+open (INPUT, $gaffile) || die "Cannot open $gaffile: $!";
+
+## output file
+my($name, $path, $ext) = fileparse($gaffile, '\..*');
+my $ofile = "$name.full.dbsnppopuse";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+print OUTPUT "||\n".
+"TYPE:\tMETHOD\n".
+"HANDLE:\t$myhandle\n".
+"ID:\t$methandle\n".
+"METHOD_CLASS:\n".
+"SEQ_BOTH_STRANDS:\n".
+"TEMPLATE_TYPE:\n".
+"MULT_PCR_AMPLIFICATION:\n".
+"MULT_CLONES_TESTED:\n".
+"METHOD:\n";
+
+## variablesGAF
+my %field2col;
+my $headerProcessed = 0;
+my %snp2dataAA = ();
+my %snp2dataAB = ();
+my %snp2dataBB = ();
+my @populations = ();
+my @snplist = ();
+
+while(<INPUT>)
+{
+	chomp $_;
+	my @fields = split("\t",$_);
+	chomp @fields;
+	
+	if(!$headerProcessed)
+	{
+		for(my $i=0;$i<@fields;$i++)
+		{
+			if($fields[$i] !~ m/id/)
+			{
+				push(@populations, $fields[$i]);
+				$field2col{$fields[$i]} = $i;
+			}
+		}
+		$headerProcessed = 1;
+	} ## GAF header
+	else
+	{
+		## rs-id
+		my @snpgeno = split("\-", $fields[0]);
+		chomp @snpgeno;
+		my $snpid = $snpgeno[0];
+		
+		my $ctr = 0;
+		
+		foreach my $snp (@snplist)
+		{
+			if($snp eq $snpid)
+			{
+				$ctr++;
+			}
+		}
+		
+		if ($ctr == 0)
+		{
+			push(@snplist, $snpid);
+		}
+		#print "$snpid\n"; ##debug
+		
+		## stores genotype data by snp-population #AA/#Samples
+		foreach my $pop(@populations)
+		{
+			if($snpgeno[1] eq 'AA')
+			{
+				$snp2dataAA{$snpid}{$pop} = $fields[$field2col{$pop}];
+			}
+			elsif($snpgeno[1] eq 'AB')
+			{
+				$snp2dataAB{$snpid}{$pop} = $fields[$field2col{$pop}];
+			}
+			elsif($snpgeno[1] eq 'BB')
+			{
+				$snp2dataBB{$snpid}{$pop} = $fields[$field2col{$pop}];
+			}
+			#print "|$pop|\t$snp2dataAA{$snpid}{$pop}KK\n"; ##debug
+		}
+				 
+	} ## GAF non-header
+}
+
+## variablesSA
+my %pop2data = ();
+my $saheaderProcessed = 0;
+my %field2colsa = ();
+
+while(<SA>)
+{
+	chomp $_;
+	my @fields = split("\t",$_);
+	chomp @fields;
+	
+	if(!$saheaderProcessed)
+	{
+		for(my $i=0;$i<@fields;$i++)
+		{
+			if($fields[$i] eq 'population-abbreviation')
+			{
+				$field2colsa{'population-abbreviation'} = $i;
+			}
+			elsif($fields[$i] eq 'ethnicity')
+			{
+				$field2colsa{'ethnicity'} = $i;
+			}
+			elsif($fields[$i] eq 'collection-locale')
+			{
+				$field2colsa{'collection-locale'} = $i;
+			}
+		}
+		
+		$saheaderProcessed = 1;
+	} ## SA header
+	else
+	{
+		foreach my $pop (@populations)
+		{
+			if($fields[$field2colsa{'population-abbreviation'}] eq $pop)
+			{
+				## stores the comment
+				$pop2data{$pop} = "from $fields[$field2colsa{'collection-locale'}]; $fields[$field2colsa{'ethnicity'}] ancestry";
+			}
+		}
+	} ## SA non-header
+}
+
+## variablesMK
+my %rsid2alleleA = ();
+my %rsid2alleleB = ();
+my $mkheaderProcessed = 0;
+my %field2colmk = ();
+
+while(<MK>)
+{
+	chomp $_;
+	my @fields = split("\t",$_);
+	chomp @fields;
+	
+	if(!$mkheaderProcessed)
+	{
+		for(my $i=0;$i<@fields;$i++)
+		{
+			if($fields[$i] eq 'rs-id')
+			{
+				$field2colmk{'rs-id'} = $i;
+			}
+			elsif($fields[$i] eq 'alleles')
+			{
+				$field2colmk{'alleles'} = $i;
+			}
+		}
+		
+		$mkheaderProcessed = 1;
+	} ## mk header
+	else
+	{
+		foreach my $snp (@snplist)
+		{
+			if($fields[$field2colmk{'rs-id'}] eq $snp)
+			{
+				my @alleles = split("\/", $fields[$field2colmk{'alleles'}]);
+				my $alleleA = $alleles[0];
+				my $alleleB = $alleles[1];
+				
+				$rsid2alleleA{$snp} = $alleleA;
+				$rsid2alleleB{$snp} = $alleleB;
+			}
+		}
+	} ## mk non-header
+}
+
+foreach my $pop (@populations)
+{
+	print OUTPUT "||\n".
+	"TYPE:\tPOPULATION\n".
+	"HANDLE:\t$myhandle\n".
+	"ID:\t$pop\n".
+	"POP_CLASS:\n".
+	"POPULATION:\t$pop2data{$pop}\n";
+}
+
+foreach my $snp (@snplist)
+{
+	#print "$snp\n"; ##debug
+	
+	foreach my $pop (@populations)
+	{
+		my @AAcounts = split("\/", $snp2dataAA{$snp}{$pop});
+		my $samplesize = $AAcounts[1];
+		my @ABcounts = split("\/", $snp2dataAB{$snp}{$pop});
+		my @BBcounts = split("\/", $snp2dataBB{$snp}{$pop});
+		
+		print OUTPUT "||\n".
+		"TYPE:\tSNPPOPUSE\n".
+		"HANDLE:\t$myhandle\n".
+		"BATCH:\t$batch\n".
+		"METHOD:\t$methandle\n".
+		"||\n".
+		"ID:\t$myhandle|$pop\n".
+		"SAMPLESIZE:\t$samplesize\n";
+		
+		my $totalup = $AAcounts[0]+$ABcounts[0]+$BBcounts[0];
+		if($totalup == $samplesize) ## no missing data
+		{
+			print OUTPUT "GENOTYPECOUNT:\t$myhandle|$snp:$rsid2alleleA{$snp}$rsid2alleleA{$snp}=$AAcounts[0]/$rsid2alleleA{$snp}$rsid2alleleB{$snp}=$ABcounts[0]/$rsid2alleleB{$snp}$rsid2alleleB{$snp}=$BBcounts[0]|RS_STRAND_FWD\n";
+		}
+		else
+		{
+			my $missing = $samplesize - $totalup;
+			print OUTPUT "GENOTYPECOUNT:\t$myhandle|$snp:(indeterminate)=$missing/$rsid2alleleA{$snp}$rsid2alleleA{$snp}=$AAcounts[0]/$rsid2alleleA{$snp}$rsid2alleleB{$snp}=$ABcounts[0]/$rsid2alleleB{$snp}$rsid2alleleB{$snp}=$BBcounts[0]|RS_STRAND_FWD\n";
+		}
+	}
+}
+
+close (SA);
+close (OUTPUT);
+close (MK);
+close (INPUT);

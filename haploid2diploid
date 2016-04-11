@@ -1,0 +1,117 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+haplotype2genotype
+
+=head1 SYNOPSIS
+
+ haplotype2genotype [options] <generic-file>	
+
+  -h help
+  -n integer; number of columns before alleles, default = 4
+  
+  <generic-file> 
+  a single-spaced delimited text file with no header, and the first n columns may be rs-id, snp-id, position-morgans, position.
+  2 columns represent each sample, with each column representing an allele (ACGT).
+  Every row represents a SNP.
+  
+  Outputs:
+  <generic-file>-diploid.tsv
+  A tab-delimited file with SNPs as rows and samples are columns, where a pair of alleles is placed together as a genotype for a sample.
+  There is no sample header, so it will be required for conversion to a proper TG file.
+ 
+  Example:
+     haplotype2genotype geno.tped
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $numberCol = 4;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'n=i'=>\$numberCol) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+
+## check if input is TG; exit if it is
+if(isTg($ifile))
+{
+	die "Input file is a TG file!: $!";
+}
+
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+my $ofile = "$name-diploid.tsv";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+# variables
+while(<INPUT>)
+{
+	chomp $_;
+	my @fields = split(/ /, $_);
+	chomp @fields;
+	
+	print OUTPUT "$fields[0]\t$fields[1]\t$fields[2]\t$fields[3]";
+	
+	for (my $i=$numberCol;$i<@fields;$i++)
+	{
+		## if numberCol is even
+		if(($numberCol % 2) == 0)
+		{
+			# if i is divisible by 2
+			if(($i % 2) == 0) 
+			{
+				print OUTPUT "\t$fields[$i]";
+			}
+			else
+			{
+				print OUTPUT "$fields[$i]";
+			}
+		}
+		else ## if numberCol non-even
+		{
+			# if i is not divisible by 2
+			if(($i % 2) != 0) 
+			{
+				print OUTPUT "\t$fields[$i]";
+			}
+			else
+			{
+				print OUTPUT "$fields[$i]";
+			}
+		}
+		
+	} ## for loop each field
+	
+	print OUTPUT "\n";
+}## while loop each row
+
+close(INPUT);
+close(OUTPUT);
+	

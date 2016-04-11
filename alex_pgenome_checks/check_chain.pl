@@ -1,0 +1,60 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+
+if (scalar(@ARGV) == 0) {
+    print "The program checks chain files to have consistent chromosome lengths.\n";
+    exit;
+}
+
+
+my ($len1,$len2)   = (0,0);
+my ($name1,$name2) = ("","");
+my ($s1,$s2)       = (0,0);
+foreach my $file (@ARGV) {
+    if (!open(FILE,$file)) { next; }
+
+    $s1 = $s2 = 0;
+    $len1 = $len2 = 0;
+    $name1 = $name2 = "";
+    while (my $line = <FILE>) {
+	my @words = split(/\s+/,$line);
+	my $n = scalar(@words);
+	if ($n > 9) { # Header
+	    if ($len1 > 0 && $s1 != $len1) {
+		print STDERR "Inconsistent length for '",$name1;
+		print STDERR "' in file ",$file,"\n";
+	    }
+	    if ($len2 > 0 && $s2 != $len2) {
+		print STDERR "Inconsistent length for '",$name2;
+		print STDERR "' in file ",$file,"\n";
+	    }
+	    $name1 = $words[2];
+	    $len1  = $words[3];
+	    $name2 = $words[7];
+	    $len2  = $words[8];
+	    $s1 = $s2 = 0;
+	} elsif ($n == 3) {
+	    $s1 += $words[0] + $words[1];
+	    $s2 += $words[0] + $words[2];
+	} elsif ($n == 1) {
+	    $s1 += $words[0];
+	    $s2 += $words[0];
+	} elsif ($n > 0) {
+	    print STDERR "Skipping the following line:\n";
+	    print STDERR $line;
+	}
+    }
+    if ($len1 > 0 && $s1 != $len1) {
+	print STDERR "Inconsistent length for '",$name1;
+	print STDERR "' in file ",$file,"\n";
+    }
+    if ($len2 > 0 && $s2 != $len2) {
+	print STDERR "Inconsistent length for '",$name2;
+	print STDERR "' in file ",$file,"\n";
+   }
+    close(FILE);
+}
+
+exit;

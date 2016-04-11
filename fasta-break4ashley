@@ -1,0 +1,178 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+fasta-break
+
+=head1 SYNOPSIS
+
+ fasta-break [options] -n 3 <fasta-file1> 
+
+  -h help
+  -n number of G repeats
+  
+  This is a hardcoded script for Ashley for G5 sequences.
+  For each fasta line (title plus sequence), it takes the sequences, breaks up into G5 (81 aa) and E (50 aa) according to the number of repeats.
+  The sequence should contain gaps to make up to 81 and 50 aa. It will check for the length based on (numRepeats*81 + numRepeats*50).
+  e.g. GEG3 - 6G 5E
+       GEG6 - 6G 5E
+       GEG7 - 8G 7E
+  
+  OUTPUT:
+  This outputs one FASTA file for each G5 or E for each protein in the original file. Hence, if GEG3.txt has 20 proteins each with 3 repeats, 
+  it will produce 20*2=40 FASTA files, i.e. each FASTA line in each file is 2 files.
+  
+  Example:
+     fasta-break -n 3 GEG3.fa
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $numRepeats = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'n=i'=>\$numRepeats) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## check if it's fasta
+if(!(isFasta($ifile)))
+{
+	die "Fasta files are required in both parameters!";
+}
+
+## variables
+my $flag = 0;
+my $ctr  = 0;
+my $ll = $numRepeats*81+($numRepeats-1)*50;
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+my $protname = '';
+	
+## loop the num of lines in file
+ITER:while(<INPUT>)
+{
+	## every new header is a new protein name/file
+	my $seqctr = 0;
+	my @G5seq;
+	my @Eseq;
+	
+	chomp $_;
+	my @line = split(//,$_);
+	
+	## recognize header and sequence
+	if(($line[0] eq ">") && ($flag==0))
+	{
+		## open 2 files, G5 and E
+		$ctr++;
+		my $g5file = "$name-g5-prot$ctr\.fa";
+		my $efile  = "$name-e-prot$ctr\.fa";
+		open (G5, ">$g5file") || die "Cannot open $g5file: $!";
+		open (E, ">$efile") || die "Cannot open $efile: $!";
+	
+		## parsing header
+		$protname = join('',@line);
+		$flag = 1;
+		next ITER;
+	}
+	elsif(($line[0] ne ">") && ($flag==0))
+	{
+		die "FASTA file (or string file if --string on) does not have title that starts with '>'!:$!";
+	}
+	else ## sequence
+	{
+		## check length of sequence
+		if(length($_) != $ll)
+		{
+			my $lk = length($_);
+			die "length of sequence not correct at line $ctr = $ll vs $lk: $!";
+		}
+		
+		while($seqctr <= $ll)
+		{
+			push(@G5seq,substr($_,$seqctr,81));
+			$seqctr = $seqctr + 81;
+			push(@Eseq,substr($_,$seqctr,50));
+			$seqctr = $seqctr + 50;
+		}
+		
+		## reset flag
+		$flag = 0;
+	}
+
+	## print G5
+	for (my $i=0;$i<@G5seq;$i++)
+	{
+		my $num = $i + 1;
+		print G5 "$protname-$num\n";
+		print G5 "$G5seq[$i]\n";
+	}
+	
+	## print E
+	for (my $j=0;$j<(@Eseq-1);$j++)
+	{
+		my $num2 = $j + 1;
+		print E "$protname-$num2\n";
+		print E "$Eseq[$j]\n";
+	}
+	
+	close(G5);
+	close(E);
+	
+}## end of one line of fa file
+
+
+close(INPUT);
+
+#######################################################################
+## check if it's fasta
+sub isFasta
+{
+	my $file = shift;
+	
+	my($name, $path, $ext) = fileparse($file, '\..*');
+	
+	if($ext eq 'fa')
+	{
+		return 0;
+	}
+	
+	open(IN, $file) || die "Cannot open $file";
+	$_ = <IN>;
+	close(IN);
+	
+	s/\r?\n?$//;
+	
+	my @line = split(//,$_);
+	if($line[0] eq '>')
+	{
+		return 1;
+	}
+	else
+	{
+		return 0;
+	}
+}

@@ -1,0 +1,233 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+fasta-make
+
+=head1 SYNOPSIS
+
+ fasta-make [options] <fastafile|referencefile>
+
+  -h help
+  
+OPTION 1   
+  --string creates a FASTA file from an old FASTA file of any length per line.
+           Requires a title with '>' in the first line.
+           Outputs a new FASTA file with 60 bases per line.
+
+OPTION 2           
+  -r the ref file containing all the reference contigs; contains header 
+     (a)start-pos, (b)end-pos
+     
+  fasta-file required with -r option; 1 FASTA sequence per file.
+  
+  -o output filename
+ 
+  -p boolean;
+  1: Given a list of start- and end-positions, this script concats all these into a new fasta file from a user-defined reference fasta file. 
+  0: Given a list of start- and end-positions, this script generates multiple FASTAs of the positions into a new file from a user-defined reference fasta file. (default)
+	
+  This script does not CHECK for the order of the contigs;
+  it simply assumes they are in order. Please do a sort
+  before running this script.
+	
+  Example:
+     fasta-make -r contigs.txt -p 1 jm.fa 
+     fasta-make -o jm --string strings.fa
+     
+  Default outputs: new-<filename>.fa
+  Output will be concatenated with .fa extension.
+       
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $reffile;
+my $string = '';
+my $pflag = 0; ## print multiple FASTAs or concatenate
+my $outputname = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'o=s'=>\$outputname, 'r=s'=>\$reffile, 'string'=>\$string, 'p=i'=>\$pflag) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## FASTA file (or string file if --string)
+my $fafile = $ARGV[0];
+open(FA, $fafile) || die "Cannot open $fafile";
+
+## output file
+my($name, $path, $ext) = fileparse($fafile, '\..*');
+my $ofile = '';
+
+if($outputname eq 0)
+{
+	$ofile = "new-$name.fa";
+}
+else
+{
+	$ofile = "$outputname.fa";
+}
+
+open(OUTPUT, ">$ofile") || die "Cannot open $ofile";
+
+## fasta global variables
+my $faheaderProcessed = 0;
+my %faheader2col;
+my @sequence=();
+my $flag = 0;
+my @newseq=();
+my $head;
+
+######################################FASTA############
+## read FASTA (or string file if --string) file to obtain sequence
+ITER:while(<FA>)
+{
+	chomp $_;
+	my @line = split(//,$_);
+	
+	if(($line[0] eq ">") && ($flag==0))
+	{
+		$head = join('',@line);
+		$flag = 1;
+		next ITER;
+	}
+	elsif(($line[0] ne ">") && ($flag==0))
+	{
+		die "FASTA file (or string file if --string on) does not have title that starts with '>'!:$!";
+	}
+	else
+	{
+		push(@sequence, @line);
+	}
+}## end of one line of fa file
+close(FA);
+
+#################################--string######################
+if($string)
+{
+	print OUTPUT "\>$head\n";
+	printout(*OUTPUT, @sequence);
+	
+	close(OUTPUT);
+	
+	exit;
+}
+
+#################################ref-file######################
+## ref file
+#my $reffile = $ARGV[0]; ## contains the ref panel of probes you r querying upon
+open(REFER, $reffile) || die "Cannot open $reffile:$!";
+
+## global input variables
+my $headerProcessed = 0;
+my %header2col;
+
+## input reference panel of probes
+while(<REFER>)
+{
+	chomp $_;
+	my @fields = split(/\t/,$_);
+	chomp @fields;
+	
+	if(!$headerProcessed) ## header
+	{		
+		ITER:for(my $i=0;$i<@fields;$i++)
+		{
+			if($fields[$i] eq 'start-pos')
+			{
+				$header2col{'start-pos'} = $i;
+				next ITER;
+			}
+			elsif($fields[$i] eq 'end-pos')
+			{
+				$header2col{'end-pos'} = $i;
+				next ITER;
+			}
+		}
+		$headerProcessed = 1;
+	}
+	else ## else non-header
+	{
+		my $startpos = $fields[$header2col{'start-pos'}];
+		my $endpos = $fields[$header2col{'end-pos'}];
+		my $contiglength = $endpos - $startpos + 1;
+		
+		## exceptions
+		if($contiglength <= 0)
+		{
+			die "Start-pos= $startpos is beyond end-pos= $endpos: $!";
+		}
+		else
+		{
+				my @contig = ();
+				
+				for(my $i=0;$i<$contiglength;$i++)
+				{
+					$contig[$i] = $sequence[($startpos+$i-1)];
+				}
+				
+				if($pflag == 1) ## print concatenation
+				{
+					push(@newseq,@contig);
+				}
+				elsif($pflag == 0) ## print multiple sequences
+				{
+					print OUTPUT "> ".join(" ",@fields)."\n";
+					printout(*OUTPUT, @contig);
+					print OUTPUT "\n";
+				}
+		}
+	}
+} ## end of one line of reference input panel of probes
+
+close(REFER);
+
+if($pflag == 1)
+{
+	## print to fasta format; 60 characters per line (0-59)
+	## print output fasta header
+	print OUTPUT "\>$ofile\n";
+	printout(*OUTPUT, @newseq);
+	print OUTPUT "\n";
+}
+
+close(OUTPUT);
+
+################################################################
+## printing
+sub printout
+{
+	my($OUTPUT, @seqtoprint) = (shift, @_[0..$#_]);
+	
+	for(my $i=0;$i<@seqtoprint;$i++)
+	{	
+		if(($i == 0) || (($i % 60)!=0)) ## if $i is not divisible by 60 keep printing
+		{
+			print $OUTPUT "$seqtoprint[$i]";
+		}
+		else ## if it is divisible by 60
+		{
+			print $OUTPUT "\n$seqtoprint[$i]";
+		}
+	}
+}

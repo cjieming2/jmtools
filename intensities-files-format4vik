@@ -1,0 +1,59 @@
+#!/usr/bin/perl -w
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+if (@ARGV==0)
+{
+	die "NO ARGUMENTS!: $!";
+}
+
+# variables
+# assuming the file fed in is transposed-tmp-list
+my $ifile=$ARGV[0];
+my $ofile="output-$ifile";
+my $headerProcessed = 2;
+my $lineProcessed = 2;
+my $rsid;
+
+# open file 
+open (INPUT, $ifile) || die "Cannot open $ifile:$!";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile:$!";
+
+LINE: while (<INPUT>)
+{	
+	# header
+	if ($headerProcessed != 0)
+	{
+		my @items=split(/\t/,$_);
+		chomp @items;
+		
+		if ($headerProcessed==2)
+		{
+			$rsid=$items[0];
+		}
+		
+		$headerProcessed -= 1;		
+		next LINE;
+	}
+	
+	chomp $_;
+	
+	if ($lineProcessed==2)
+	{
+		print OUTPUT "$rsid\tA\t$_\n";
+		$lineProcessed -= 1;
+	}
+	elsif ($lineProcessed==1)
+	{
+		print OUTPUT "$rsid\tB\t$_\n";
+		$lineProcessed -= 1;
+	}	
+}
+
+close (INPUT);
+close (OUTPUT);

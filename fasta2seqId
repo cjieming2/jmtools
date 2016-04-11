@@ -1,0 +1,134 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+fasta2seqId
+
+=head1 SYNOPSIS
+
+ -h help
+  
+  This script calculates the sequence identity of all sequences in the input FASTA.
+  Assumes that all the input sequences have LABELS and the SAME length
+
+	INPUT file: No header please. E.g. a BED file
+	OUTPUT : a matrix using the labels given by the FASTA; each entry is a sequence identity %
+	
+	Due to efficiency issues, please limit the number of sequences to a manageable number (575 ok, otherwise untested).
+  
+  USAGE:
+     fasta2seqId tpr.fasta > tpr.seqidmat
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $col = 0;
+my $blosum = '';
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+# variables
+my $flag = 0;
+my %LABEL2SEQ;
+my $label = '';
+my $cctr = 1;
+
+# read input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+ITER:while (<INPUT>)
+{
+	s/\r?\n?$//;
+	chomp $_;
+	
+	## first header
+	if((substr($_,0,1) eq ">") && ($flag==0))
+	{
+		$flag = 1;
+		$label = substr($_,1)."-$cctr";
+		$cctr++;
+		next ITER;
+	}
+	elsif((substr($_,0,1) ne ">") && ($flag==0)) ## no '>' not fasta
+	{
+		die "FASTA file does not have headers/labels that start with '>'!:$!";
+	}
+	elsif((substr($_,0,1) eq ">") && ($flag==1))  ## non-first headers
+	{		
+		$label = substr($_,1)."-$cctr";
+		$cctr++;
+		next ITER;
+	}
+	else ## sequence
+	{
+		$LABEL2SEQ{$label} = $_;
+	}
+}
+
+### print header
+my $fl = 0;
+
+for my $lable (sort keys %LABEL2SEQ)
+{
+	if(!$fl){	print "seqlength=".length($LABEL2SEQ{$lable}); $fl=1; }
+	print "\t$lable";
+}
+print "\n";
+
+### compare sequence
+for my $label1 (sort keys %LABEL2SEQ)
+{
+	print $label1;
+	for my $label2 (sort keys %LABEL2SEQ)
+	{
+		if(length($LABEL2SEQ{$label1}) != length($LABEL2SEQ{$label2})){ die "sequence lengths of $label1 and $label2 do not match!: $!"; }
+		my $identity = seqid($LABEL2SEQ{$label1}, $LABEL2SEQ{$label2});
+		printf "\t%.3f", $identity;
+	}
+	print "\n";
+}
+
+close(INPUT);
+
+
+###############################################################################33
+### this function counts the percentage of seq identity given 2 sequences of
+##  the SAME length
+sub seqid
+{
+	my ($seq1, $seq2) = (shift, shift);
+	my @seqOne = split(//,$seq1);
+	my @seqTwo = split(//,$seq2);
+	my $ctr = 0;
+
+	for (my $i=0;$i<@seqOne;$i++)
+	{
+		if($seqOne[$i] eq $seqTwo[$i]){ $ctr++; }
+	}
+	
+	return $ctr/(scalar @seqOne);
+}

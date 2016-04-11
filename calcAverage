@@ -1,0 +1,143 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+maxMin4jas
+
+=head1 SYNOPSIS
+
+ -h help
+ -c column number (1-based) in which the column to choose the values are
+  
+  header of the input file must have the following:
+  1) column to pick average
+  
+  This script picks the average found in a user-defined column.
+  
+  USAGE:
+     maxMin4jas -c 2 snp.tsv
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $col = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'c=i'=>\$col) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+
+if($col == 0)
+{
+	die "column cannot be $col";
+}
+
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+
+my $outlabel = 'ave';
+
+my $ofile = "$outlabel\-$ifile";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+# variables
+my $headerProcessed = 0;
+my %header2col;
+my %id2min;
+my $col2array = $col-1;
+my $chosenCol;
+	
+# read input file
+LINE1:while (<INPUT>)
+{
+	s/\r?\n?$//;
+	chomp $_;
+	my @fields = split(/\t/, $_);
+	
+	if(!$headerProcessed)
+	{
+		print OUTPUT join("\t",@fields);
+		print OUTPUT "\n";
+		
+		$chosenCol = $fields[$col2array];
+		print "find $outlabel in chosen column: $fields[$col2array]\n";
+		
+		SEARCH_LABEL_SUBJ: for my $label ('id')
+		{					
+			for (my $i=0;$i<@fields;$i++)
+			{				
+				if($fields[$i] eq $label)
+				{
+					$header2col{$label} = $i;
+					next SEARCH_LABEL_SUBJ;
+				}
+			}
+			
+			unlink $ofile;
+			die "Cannot find $label in $ifile";
+		} ## loop header's fields
+		
+		$headerProcessed = 1;
+		next LINE1;
+	} ## subj header
+	else
+	{	
+		# check col values if it's numeric
+		if($fields[$col2array] !~ m/^(\d+\.?\d*|\.\d+)$/)
+		{
+			die "col $chosenCol does not contain numeric values!";
+		}		
+			
+		if(!exists($id2min{$fields[$header2col{'id'}]})) # first instance of id (repeated value)
+		{
+			$id2min{$fields[$header2col{'id'}]}{'col'} = $fields[$col2array];
+			$id2min{$fields[$header2col{'id'}]}{'line'} = $_;
+			
+			$id2min{$fields[$header2col{'id'}]}{'count'} = 1;
+			
+		}
+		else
+		{
+			
+				$id2min{$fields[$header2col{'id'}]}{'col'} = $id2min{$fields[$header2col{'id'}]}{'col'} + $fields[$col2array];
+				$id2min{$fields[$header2col{'id'}]}{'count'} = $id2min{$fields[$header2col{'id'}]}{'count'} + 1;
+				$fields[$col2array] = $id2min{$fields[$header2col{'id'}]}{'col'} / $id2min{$fields[$header2col{'id'}]}{'count'};
+				$id2min{$fields[$header2col{'id'}]}{'line'} = join("\t",@fields);
+			
+		}
+	}
+}
+
+for my $k1 (keys %id2min)
+{
+	print OUTPUT "$id2min{$k1}{'line'}\n";
+}
+
+close(INPUT);
+close(OUTPUT);
+	

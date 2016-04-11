@@ -1,0 +1,284 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+trio_mendelian_consistency_test
+
+=head1 SYNOPSIS
+
+ trio_mendelian_consistency_test [options] vcf-file
+
+  -h help
+  -c child sample ID in VCF file (mandatory)
+  -m mom 
+  -p dad
+  -a 1; autosomes only, default is all chr -a 0)
+  
+  
+  takes in a vcf file or STDIN from pipe and prints a table to calculate mendelian consistency.
+  checks if there are 3 samples in VCF genotype file.
+  
+  not autosomes:
+  if($fields[$sample2index{"chrX"}] || $fields[$sample2index{"X"}] || 
+				 $fields[$sample2index{"chrY"}] || $fields[$sample2index{"Y"}] || 
+				 $fields[$sample2index{"chrMT"}] || $fields[$sample2index{"chrmt"}] || $fields[$sample2index{"MT"}])
+                
+ 
+  Example:
+     trio_mendelian_consistency_test -c NA12878 -m NA12892 -d NA12891 snps.vcf
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $child;
+my $mom;
+my $dad;
+my $verbose;
+my $debug;
+my $help;
+my $USE_STDIN = 0;
+my $auto = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'c=s'=>\$child, 'm=s'=>\$mom, 'd=s'=>\$dad, 'a=i'=>\$auto) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+
+# variables
+my $header_processed = 0;
+my %sample2index;
+my $chr;
+
+my $rr_rr_rr = 0;
+my $rr_rr_ra = 0;
+my $rr_rr_aa = 0;
+
+my $rr_ra_rr = 0;
+my $rr_ra_ra = 0;
+my $rr_ra_aa = 0;
+
+my $rr_aa_rr = 0;
+my $rr_aa_ra = 0;
+my $rr_aa_aa = 0;
+
+my $ra_rr_rr = 0;
+my $ra_rr_ra = 0;
+my $ra_rr_aa = 0;
+
+my $ra_ra_rr = 0;
+my $ra_ra_ra = 0;
+my $ra_ra_aa = 0;
+
+my $ra_aa_rr = 0;
+my $ra_aa_ra = 0;
+my $ra_aa_aa = 0;
+
+my $aa_rr_rr = 0;
+my $aa_rr_ra = 0;
+my $aa_rr_aa = 0;
+
+my $aa_ra_rr = 0;
+my $aa_ra_ra = 0;
+my $aa_ra_aa = 0;
+
+my $aa_aa_rr = 0;
+my $aa_aa_ra = 0;
+my $aa_aa_aa = 0;
+
+# read VCF file
+LINE:while (<>)
+{
+	chomp;
+	s/\r?\n?$//;
+	
+	## skip comments
+	if($_ =~ m/^##/)
+	{
+		next;
+	}
+
+	my @fields = split(/\t/, $_);
+	
+	## process the header
+	if(!$header_processed)
+	{
+		SAMPLE:for my $sample ($child, $mom, $dad, "#CHROM")
+		{
+			for (my $i=0;$i<@fields;$i++)
+			{
+				if($fields[$i] eq $sample)
+				{
+					$sample2index{$sample} = $i;
+					
+					next SAMPLE;
+				}
+			}
+			die "$sample not found:$!";
+		}
+		
+		$header_processed = 1;
+	}
+	else # if header processed
+	{
+		## gives 00,01,11,12,22
+#		my $dgeno = $fields[$sample2index{$dad}];
+#		my $mgeno = $fields[$sample2index{$mom}];
+#		my $cgeno = $fields[$sample2index{$child}];
+#		
+#		print "$dgeno\t$mgeno\t$cgeno\n";
+
+		my $dgeno = parseGeno($fields[$sample2index{$dad}]);
+		my $mgeno = parseGeno($fields[$sample2index{$mom}]);
+		my $cgeno = parseGeno($fields[$sample2index{$child}]);
+		
+		if($auto)
+		{
+			if($fields[$sample2index{"#CHROM"}] eq "chrX"  || $fields[$sample2index{"#CHROM"}] eq "X"     || 
+				 $fields[$sample2index{"#CHROM"}] eq "chrY"  || $fields[$sample2index{"#CHROM"}] eq "Y"     || 
+				 $fields[$sample2index{"#CHROM"}] eq "chrMT" || $fields[$sample2index{"#CHROM"}] eq "chrmt" || $fields[$sample2index{"#CHROM"}] eq "MT")
+			{
+				next LINE;
+			}
+		}
+		
+		## all gtype combinations
+		if($dgeno eq "00" && $mgeno eq "00" && $cgeno eq "00"){ $rr_rr_rr++;	}
+		elsif($dgeno eq "00" && $mgeno eq "00" && ($cgeno eq "01" || $cgeno eq "02")){ $rr_rr_ra++;	}
+		elsif($dgeno eq "00" && $mgeno eq "00" && ($cgeno eq "11" || $cgeno eq "12" || $cgeno eq "22")){ $rr_rr_aa++;	}
+		
+		elsif($dgeno eq "00" && ($mgeno eq "01" || $mgeno eq "02") && $cgeno eq "00"){ $rr_ra_rr++;	}
+		elsif($dgeno eq "00" && ($mgeno eq "01" || $mgeno eq "02") && ($cgeno eq "01" || $cgeno eq "02")){ $rr_ra_ra++;	}
+		elsif($dgeno eq "00" && ($mgeno eq "01" || $mgeno eq "02") && ($cgeno eq "11" || $cgeno eq "12" || $cgeno eq "22")){ $rr_ra_aa++;	}
+		
+		elsif($dgeno eq "00" && ($mgeno eq "11" || $mgeno eq "12" || $mgeno eq "22") && $cgeno eq "00"){ $rr_aa_rr++;	}
+		elsif($dgeno eq "00" && ($mgeno eq "11" || $mgeno eq "12" || $mgeno eq "22") && ($cgeno eq "01" || $cgeno eq "02")){ $rr_aa_ra++;	}
+		elsif($dgeno eq "00" && ($mgeno eq "11" || $mgeno eq "12" || $mgeno eq "22") && ($cgeno eq "11" || $cgeno eq "12" || $cgeno eq "22")){ $rr_aa_aa++;	}
+		
+		elsif(($dgeno eq "01" || $dgeno eq "02") && $mgeno eq "00" && $cgeno eq "00"){ $ra_rr_rr++;	}
+		elsif(($dgeno eq "01" || $dgeno eq "02") && $mgeno eq "00" && ($cgeno eq "01" || $cgeno eq "02")){ $ra_rr_ra++;	}
+		elsif(($dgeno eq "01" || $dgeno eq "02") && $mgeno eq "00" && ($cgeno eq "11" || $cgeno eq "12" || $cgeno eq "22")){ $ra_rr_aa++;	}
+		
+		elsif(($dgeno eq "01" || $dgeno eq "02") && ($mgeno eq "01" || $mgeno eq "02") && $cgeno eq "00"){ $ra_ra_rr++;	}
+		elsif(($dgeno eq "01" || $dgeno eq "02") && ($mgeno eq "01" || $mgeno eq "02") && ($cgeno eq "01" || $cgeno eq "02")){ $ra_ra_ra++;	}
+		elsif(($dgeno eq "01" || $dgeno eq "02") && ($mgeno eq "01" || $mgeno eq "02") && ($cgeno eq "11" || $cgeno eq "12" || $cgeno eq "22")){ $ra_ra_aa++;	}
+		
+		elsif(($dgeno eq "01" || $dgeno eq "02") && ($mgeno eq "11" || $mgeno eq "12" || $mgeno eq "22") && $cgeno eq "00"){ $ra_aa_rr++;	}
+		elsif(($dgeno eq "01" || $dgeno eq "02") && ($mgeno eq "11" || $mgeno eq "12" || $mgeno eq "22") && ($cgeno eq "01" || $cgeno eq "02")){ $ra_aa_ra++;	}
+		elsif(($dgeno eq "01" || $dgeno eq "02") && ($mgeno eq "11" || $mgeno eq "12" || $mgeno eq "22") && ($cgeno eq "11" || $cgeno eq "12" || $cgeno eq "22")){ $ra_aa_aa++;	}
+		
+		elsif(($dgeno eq "11" || $dgeno eq "12" || $dgeno eq "22") && $mgeno eq "00" && $cgeno eq "00"){ $aa_rr_rr++;	}
+		elsif(($dgeno eq "11" || $dgeno eq "12" || $dgeno eq "22") && $mgeno eq "00" && ($cgeno eq "01" || $cgeno eq "02")){ $aa_rr_ra++;	}
+		elsif(($dgeno eq "11" || $dgeno eq "12" || $dgeno eq "22") && $mgeno eq "00" && ($cgeno eq "11" || $cgeno eq "12" || $cgeno eq "22")){ $aa_rr_aa++;	}
+		
+		elsif(($dgeno eq "11" || $dgeno eq "12" || $dgeno eq "22") && ($mgeno eq "01" || $mgeno eq "02") && $cgeno eq "00"){ $aa_ra_rr++;	}
+		elsif(($dgeno eq "11" || $dgeno eq "12" || $dgeno eq "22") && ($mgeno eq "01" || $mgeno eq "02") && ($cgeno eq "01" || $cgeno eq "02")){ $aa_ra_ra++;	}
+		elsif(($dgeno eq "11" || $dgeno eq "12" || $dgeno eq "22") && ($mgeno eq "01" || $mgeno eq "02") && ($cgeno eq "11" || $cgeno eq "12" || $cgeno eq "22")){ $aa_ra_aa++;	}
+		
+		elsif(($dgeno eq "11" || $dgeno eq "12" || $dgeno eq "22") && ($mgeno eq "11" || $mgeno eq "12" || $mgeno eq "22") && $cgeno eq "00"){ $aa_aa_rr++;	}
+		elsif(($dgeno eq "11" || $dgeno eq "12" || $dgeno eq "22") && ($mgeno eq "11" || $mgeno eq "12" || $mgeno eq "22") && ($cgeno eq "01" || $cgeno eq "02")){ $aa_aa_ra++;	}
+		elsif(($dgeno eq "11" || $dgeno eq "12" || $dgeno eq "22") && ($mgeno eq "11" || $mgeno eq "12" || $mgeno eq "22") && ($cgeno eq "11" || $cgeno eq "12" || $cgeno eq "22")){ $aa_aa_aa++;	}
+		
+		
+	}
+	
+}
+
+close(INPUT);
+
+## print output
+my $rr_rr = $rr_rr_rr + $rr_rr_ra + $rr_rr_aa;
+my $rr_ra = $rr_ra_rr + $rr_ra_ra + $rr_ra_aa;
+my $rr_aa = $rr_aa_rr + $rr_aa_ra + $rr_aa_aa;
+my $ra_rr = $ra_rr_rr + $ra_rr_ra + $ra_rr_aa;
+my $ra_ra = $ra_ra_rr + $ra_ra_ra + $ra_ra_aa;
+my $ra_aa = $ra_aa_rr + $ra_aa_ra + $ra_aa_aa;
+my $aa_rr = $aa_rr_rr + $aa_rr_ra + $aa_rr_aa;
+my $aa_ra = $aa_ra_rr + $aa_ra_ra + $aa_ra_aa;
+my $aa_aa = $aa_aa_rr + $aa_aa_ra + $aa_aa_aa;
+
+my $rr_rr_e = ($rr_rr_ra + $rr_rr_aa)/$rr_rr * 100;
+my $rr_ra_e = ($rr_ra_aa)/$rr_ra * 100;
+my $rr_aa_e = ($rr_aa_rr + $rr_aa_aa)/$rr_aa * 100;
+my $ra_rr_e = ($ra_rr_aa)/$ra_rr * 100;
+my $ra_aa_e = ($ra_aa_rr)/$ra_aa * 100;
+my $aa_rr_e = ($aa_rr_rr + $aa_rr_aa)/$aa_rr * 100;
+my $aa_ra_e = ($aa_ra_rr)/$aa_ra * 100;
+my $aa_aa_e = ($aa_aa_rr + $aa_aa_ra)/$aa_aa * 100;
+
+my $rr_ra_h = $rr_ra_ra / $rr_ra * 100;
+my $ra_rr_h = $ra_rr_ra / $ra_rr * 100;
+my $ra_ra_h = $ra_ra_ra / $ra_ra * 100;
+my $ra_aa_h = $ra_aa_ra / $ra_aa * 100;
+my $aa_ra_h = $aa_ra_ra / $aa_ra * 100;
+
+print "Father\tMother\tRR\tRA\tAA\ttotal\t\%Err/denovo\t\%Het\n";
+printf "RR\tRR\t%d\t%d\t%d\t%d\t%.2f\t--\n", $rr_rr_rr,$rr_rr_ra,$rr_rr_aa,$rr_rr,$rr_rr_e;
+printf "RR\tRA\t%d\t%d\t%d\t%d\t%.2f\t%.2f\n", $rr_ra_rr,$rr_ra_ra,$rr_ra_aa,$rr_ra,$rr_ra_e,$rr_ra_h;
+printf "RR\tAA\t%d\t%d\t%d\t%d\t%.2f\t--\n", $rr_aa_rr,$rr_aa_ra,$rr_aa_aa,$rr_aa,$rr_aa_e;
+printf "RA\tRR\t%d\t%d\t%d\t%d\t%.2f\t%.2f\n", $ra_rr_rr,$ra_rr_ra,$ra_rr_aa,$ra_rr,$ra_rr_e,$ra_rr_h;
+printf "RA\tRA\t%d\t%d\t%d\t%d\t--\t%.2f\n", $ra_ra_rr,$ra_ra_ra,$ra_ra_aa,$ra_ra,$ra_ra_h;
+printf "RA\tAA\t%d\t%d\t%d\t%d\t%.2f\t%.2f\n", $ra_aa_rr,$ra_aa_ra,$ra_aa_aa,$ra_aa,$ra_aa_e,$ra_aa_h;
+printf "AA\tRR\t%d\t%d\t%d\t%d\t%.2f\t--\n", $aa_rr_rr,$aa_rr_ra,$aa_rr_aa,$aa_rr,$aa_rr_e;
+printf "AA\tRA\t%d\t%d\t%d\t%d\t%.2f\t%.2f\n", $aa_ra_rr,$aa_ra_ra,$aa_ra_aa,$aa_ra,$aa_ra_e,$aa_ra_h;
+printf "AA\tAA\t%d\t%d\t%d\t%d\t%.2f\t--\n", $aa_aa_rr,$aa_aa_ra,$aa_aa_aa,$aa_aa,$aa_aa_e;
+
+############################################################################
+## parse genotype column to get 00, 01, 11, 12, 22
+############################################################################
+
+sub parseGeno
+{
+	my $col = shift;
+	
+	my @f = split(/\:/,$col,2);
+	my @geno;
+
+	if($f[0] =~ m/\d\/\d/)
+	{
+		@geno = split(/\//,$f[0]);
+	}
+	elsif($f[0] =~ m/\d\|\d/)
+	{
+		@geno = split(/\|/,$f[0]);
+	}
+	elsif($f[0] =~ m/\.\/\./)
+	{
+		return "\.\.";
+	}
+	
+	#print "$f[0]\t$geno[0]\t$geno[1]\n"; ##debug
+	
+	if($geno[0] > $geno[1])
+	{
+		return "$geno[1]$geno[0]";
+	}
+	else
+	{
+		return "$geno[0]$geno[1]";
+	}
+	
+}

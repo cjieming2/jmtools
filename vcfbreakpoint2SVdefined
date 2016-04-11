@@ -1,0 +1,191 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+use Switch;
+
+=head1 NAME
+
+vcfbreakpoint2SVdefined
+
+=head1 SYNOPSIS
+
+ vcfbreakpoint2SVdefined -b breakpointfile.txt.gz [options] <vcf-file>	
+ REQUIRES: fasta-peek script (jmtools) and FASTA files with names e.g. chr1.fa,chr2.fa...
+ 
+ this script takes in an SV VCF file and a break point file and try to define reference and alternate alleles 
+ of SVs.
+ The script only recognizes <CN#> in the alternate allele now
+ 
+  -h help  
+  -b breakpointfile.txt.gz; gzipped; format:
+  #CHROM  START(  END]    ID      								TYPE    ALT     HOMLEN  HOMSEQ  MUTMECH ANCESTRAL
+	1       668630  850204  DUP_delly_DUP20532      TDUP    T       1       G       UNSURE  UNKNOWN
+	
+	required; requires header, especially columns CHROM START END ID
+	ID, POS used here: POS is 0-based, so start to grab sequence in FASTA since VCF include one more before START
+	using the positions in the breakpoint, we grab the sequence in FASTA files using fasta-peek
+	We only care about TDUPS and DEL for now
+	ID col can be delimited by semicolon; we only take the first one
+	
+  <VCF>
+  identify by ID, replace ref and alt with the sequence
+  
+  STDOUT: this allows piping
+  It also outputs a missing file of ids in VCF not found in breakpoint file (but not neccessarily the other way).
+  
+  Example:
+     vcfbreakpoint2SVdefined -b breakpoint.txt.gz genotype.vcf > genotype.newSV.vcf
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $breakfile = '';
+my $help;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('b=s'=>\$breakfile,'h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+###############################################################
+## read breakpoint file #######################################
+## breakpoint file - obtain positions
+open (BREAK, $breakfile) || die "Cannot open $breakfile: $!";
+
+## variables
+my $headerProcessed = 0;
+my %header2col;
+my %id2breakpt;
+my %id2pos;
+my %id2type;
+
+while (<BREAK>)
+{
+	#my $now = time; ##debug
+	
+	s/\r?\n?$//;
+	my @fields = split(/\t/, $_);
+	chomp @fields; 
+	
+	if($headerProcessed == 0)
+	{
+		BLINE:for my $desired ('#CHROM','START(','END]','ID','TYPE')
+		{
+			for (my $i=0;$i<@fields;$i++)
+			{
+				if($fields[$i] eq $desired)
+				{
+					$header2col{$desired} = $i;
+					next BLINE;
+				}
+			}
+			die("$desired not in $breakfile:$!");
+		} 
+		
+		$headerProcessed = 1;
+	} ## if first row header
+	else
+	{
+		my $chr = $fields[$header2col{'#CHROM'}];
+		$chr =~ s/chr//g;
+		
+		# sex chromosomes - need to change back to X and Y later
+		if($chr eq 'X'){ $chr = 23;	}
+		elsif($chr eq 'Y'){	$chr = 24; }
+		
+		my $start = $fields[$header2col{'START('}];										
+		my $end = $fields[$header2col{'END]'}];
+		my $id = (split(/;/,$fields[$header2col{'ID'}]))[0];
+		my $type = $fields[$header2col{'TYPE'}];
+		
+		$id2pos{$id} = $chr.'-'.$start.'-'.$end;
+		$id2type{$id} = $type;
+				
+	}
+	#$now = time - $now; ##debug
+	#printf("Total running time: %02d:%02d:%02d\n", int($now / 3600), int(($now % 3600) / 60), int($now % 60)); ##debug
+}
+
+close(BREAK);
+
+#######################################################
+## read VCF file #######################################
+## input VCF file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## variables
+my $printflag = 0;
+my @headers;
+my $sampleflag = 0;
+my @samplescol;
+my $vcfid;
+my $vcfref;
+my @vcfalt;
+my @data;
+my $newdata;
+
+LINE: while (<INPUT>)
+{
+	chomp $_;
+	
+	### print comment lines and then next
+	if($_ =~ m/^#/){print "$_\n"; next;}
+	
+	### for non-comment lines
+	@data = split(/\t/,$_);
+	$vcfid = $data[2];
+	
+	if($data[4] !~ m/>/) ### if alt allele has no <>
+	{
+		print "$_\n";
+		next;
+	} ### alt ! <> and id does exist
+	elsif(exists($id2pos{$vcfid}))
+	{	
+		## check SV type -- only care about TDUP and DEL
+		if($id2type{$vcfid} ne 'TDUP' && $id2type{$vcfid} ne 'DEL'){ next; }
+		else
+		{
+			my @pos = split('-',$id2pos{$vcfid});
+			my $seq = `fasta-peek -s $pos[1] -e $pos[2] chr$pos[0].fa`;
+			chomp $seq; 
+			$seq =~ s/\n//g;
+		  my $startbase = substr($seq,0,1);
+		  
+			## if deletion
+			if($id2type{$vcfid} eq 'DEL')
+			{
+				$data[3] = $seq;
+				$data[4] = $startbase;
+			}
+			else ## if insertion
+			{
+				my $cn = m/\<CN(\d)\>/;
+				
+				substr($seq,0,1) = "";
+				$data[4] = $startbase . ($seq x ($1-1));
+			}
+		}
+		$newdata = join("\t",@data);
+		print "$newdata\n";
+	} 
+}
+
+close(INPUT);

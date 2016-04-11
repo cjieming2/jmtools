@@ -1,0 +1,159 @@
+#!/usr/bin/perl -w
+
+use warnings;
+use strict;
+use fralib;
+use Getopt::Long;
+use File::Basename;
+use Pod::Usage;
+
+=head1 NAME
+
+findWord4nick
+
+=head1 SYNOPSIS
+
+ findWord4nick [options] <inputfile>
+
+  -h                     help
+  -o                     output file name (optional); default: jm.out
+                      
+  -p                     pattern, in PERL regex form: example [DE][A-Z]S[LIVMFWY][A-Z], and . is a wildcard; case-insensitive
+                         note that repeat motifs are counted exclusive, i.e. pattern jj in jjjj has 2 occurrences.
+  
+  <inputfile>            sequence FASTA file; can be zipped in gz format but has to be named of the form ipi_HUMAN.fasta.gz (2 dots)
+  
+  This script takes in a FASTA file and returns 
+  1) the absolute occurrence of that pattern in the file, 
+  2) the number of sequences with that motif
+  3) percentage of sequences with that motif
+  4) count/seqlength (was used to calc the frequency of the amino acid in the database)
+  
+  This is an incomplete script:
+  1) case sensitivity can be made optional
+  2) doesn't check if it's a FASTA
+  3) doesn't check if regex pattern is correct
+  4) doesn't distinguish DNA, RNA or protein sequence, so you have to be sure what you are finding.
+  
+  OR you can definitely rewrite the code.
+  
+  example: findWord4nick -p [DE]-x-S-[LIVMFWY]-x -o jm.out proteome.fa
+        
+=head1 DESCRIPTION
+
+=cut
+
+my $help;
+my $ifile;
+my $ofile;
+my $pattern;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'o=s'=>\$ofile, 'p=s'=>\$pattern) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+# read FASTA filename
+$ifile = $ARGV[0];
+
+my ($name, $path, $ext) = fileparse($ifile, '\..*');
+#print "$name\t$path\t$ext\n"; #debug
+
+if (!defined($ofile))
+{
+	$ofile = "$name.out";
+}
+
+# if it's zipped
+my $isZipped = $ext =~ /\.gz$/ ? 1 : 0;
+
+if($isZipped)
+{
+    print "unzipping ...\n";
+    system("gunzip $ifile") == 0 || die "gunzip failed: $?";
+    open(IN, "$name\.fasta") || die "Cannot open $ifile\n";
+}
+else
+{
+	open(IN, $ifile) || die "Cannot open $ifile\n";
+}
+
+
+open(OUT, ">$ofile") || die "Cannot open $ofile\n";
+print OUT "pattern_found\n";
+    
+my $flag = 0;
+my @seq;
+my $seqlength = 0;
+
+# set the input record separator to >, so each "line" is >
+local $/ = '>';
+## loop FASTA file
+ITER:while(<IN>)
+{
+	chomp $_;
+	
+	# strip out >
+	s/^>//g; 
+	s/>$//g;
+	next if !length($_); # skip if empty line
+	
+	# capture header and strip it out
+	my $headerInfo = /^(.*)\n/;
+	s/^(.*)\n//;
+	
+	# join the sequence
+	s/\n//mg;
+	$seqlength = $seqlength + length($_);
+	push @seq, $_;
+	
+}## end of one line of fa file
+
+close(IN);
+
+if($isZipped)
+{
+  print "zipping ...\n";
+  system("gzip $name.fasta") == 0 || die "gzip failed: $?";
+}
+
+my $numSeqHit = 0;
+my $count = 0;
+my $hitflag = 0;
+#print $#seq+1; #debug
+for (my $i=0;$i<@seq;$i++)
+{
+	#print "###$seq[$i]\n"; #debug
+	while($seq[$i] =~ m/($pattern)/gi)
+	{
+		  print OUT "$1\n";
+		  $count++;
+	}
+	
+	if($seq[$i] =~ m/($pattern)/gi)
+	{
+			$numSeqHit++;
+	}
+}
+
+my $totalSeq = $#seq + 1;
+my $proportion = $numSeqHit/$totalSeq * 100;
+print "$pattern\n";
+print "number of occurrences of pattern  = $count\n";
+print "number of sequences with pattern  = $numSeqHit\n";
+print "total number of sequences         = $totalSeq\n";
+printf "percent of sequences with pattern = %.3f\n",$proportion;
+print "number of characters              = $seqlength\n";
+printf "(count)\/(sequencelength)          = %.5f\n",$count/$seqlength;
+
+close(OUT);

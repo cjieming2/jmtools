@@ -1,0 +1,468 @@
+#!/usr/bin/perl
+################################################################
+# Name: Jieming Chen
+# CBB752 Programming Assignment 1
+# 23rd Feb 2011
+# Smith-Waterman Algorithm
+################################################################
+
+use warnings;
+use strict;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+smithwaterman
+
+=head1 SYNOPSIS
+
+ smithwaterman -options [input file]
+
+  -h help
+  The program implements the Smith-Waterman local alignment algorithm for PROTEIN sequences.
+  When there is a tie in the scoring of the matrix, the diagonal is most favored, followed by the left (gap in the second sequence) and then the top (gap in the first sequence).
+  The rationale being diagonals are matches.
+  
+  It automatically reads in these files (required to name them as follows):
+  matrix.txt - weight matrix file; can be tab or space-delimited
+  -o output filename; default filename is 'output.txt'
+  -s match score; default is 1 
+  -m mismatch penalty; default is 0
+  -g gap (opening) penalty; default is -2
+  -e gap (extension) penalty; default is -1
+  
+  [input file]  
+  - file with ONLY two protein sequences, one per line; default filename 'input.txt'
+    
+  output file format:
+  The output file is divided into 3 sections: alignment, alignment score and finally a tab-delimited scoring matrix.
+  Multiple optimal alignments are possibly picked out and are numbered accordingly. In the scoring matrix, the path of these alignments are marked with an asterisk followed by the alignment number in the final matrix.
+  Note that if there are multiple alignments passing through the same path, the score in the entries of the path will be marked with an asterisk then followed by multiple alignment numbers.
+  
+  Example:
+     smithwaterman input.txt
+     
+   THINGS TO DO:
+   diagonal favored.. so not strictly SW
+  
+=head1 DESCRIPTION
+
+=cut
+
+## option variables (alow user input) /defaults
+my $help;
+my $ifile = 'input.txt';
+my $matrixFile = 'matrix.txt';
+my $ofile = 'output.txt';
+my $openinggap = -2;
+my $extendgap = -1;
+
+## initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'o=s'=>\$ofile, 'g=i'=>\$openinggap, 'e=i'=>\$extendgap) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+$ifile = $ARGV[0];
+
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+open (MATRIX, $matrixFile) || die "Cannot open $matrixFile: $!";
+
+## output file
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+## variables
+my $ctr = 0;
+my @seq1;
+my @seq2;
+my $matrixheaderProcessed = 0;
+my @matcol2header;
+my %MATRIX;
+
+## read matrix file
+while(<MATRIX>)
+{
+	# removes all the starting and trailing spaces
+	# and condense all spaces in between words into tabs
+	chomp;
+	s/^ \ //g; s/\ $//g;
+	s/[\ \t]+/\t/g;
+	
+	my @line = split("\t",$_);
+	
+	# process the header of the matrix
+	# link column num with column name
+	if(!$matrixheaderProcessed)
+	{
+		@matcol2header = @line;
+		$matrixheaderProcessed = 1;
+	}
+	else # header processed, process matrix
+	{
+		# assume that the first column is an amino acid
+		# saves matrix in a hash
+		for (my $i=1;$i<@line;$i++)
+		{
+			$MATRIX{$line[0]}{$matcol2header[$i]} = $line[$i];
+		}
+	}
+} 
+
+## read input file
+while (<INPUT>)
+{
+	chomp;
+	
+	if($ctr == 0)
+	{
+		@seq1 = split('', $_);
+	}
+	elsif($ctr == 1)
+	{
+		@seq2 = split('', $_);
+	}
+	else
+	{
+		warn "Input file has more than 2 sequences. Only first 2 sequences will be aligned...: $!";
+		last;
+		print "JM\n";
+	}
+	
+	$ctr++;
+}
+
+## check if input file has less than 2 sequences; throws an error
+if ($ctr < 1)
+{
+	die "Input file has less than TWO sequences!: $!";
+}
+
+## implements the SW algorithm
+## input sequence 1 and 2, and the matrix
+## output aligned sequence 1 and 2 and the scoring matrix
+my ($aligned1, $aligned2, $dpmatrix) = SW($openinggap, $extendgap, \@seq1, \@seq2, \%MATRIX);
+
+my @aligned1 = @$aligned1;
+my @aligned2 = @$aligned2;
+my @dpmatrix = @$dpmatrix;
+
+## prints to output file
+## prints alignment
+for (my $z=0;$z<@aligned1;$z++)
+{
+	my $gapseq1 = 0;
+	my $gapseq2 = 0;
+	my $displscore = '';
+	my $score = 0;
+	
+	my $j = 0;
+	my $num = $z+1;
+	print OUTPUT "\n<<< ALIGNMENT $num >>>\n";
+	
+	while($j<length($aligned1[$z]))
+	{
+		print OUTPUT substr($aligned1[$z],$j,60),"\n";
+		for (my $i=$j;$i<length($aligned1[$z]);$i++)
+		{
+			# if aligned char is a gap (or not)
+			if((substr($aligned1[$z],$i,1) eq '-') || (substr($aligned2[$z],$i,1) eq '-'))
+			{
+				
+				if($i==0)
+				{
+					print OUTPUT " ";
+				}
+				else
+				{
+					print OUTPUT " ";
+					
+					if(substr($aligned1[$z],$i,1) eq '-' && !$gapseq1)
+					{
+						$gapseq1 = 1;
+						$displscore .= $openinggap;
+						$score = $score + $openinggap;
+					}
+					elsif(substr($aligned2[$z],$i,1) eq '-' && !$gapseq2)
+					{
+						$gapseq2 = 1;
+						$displscore .= $openinggap;
+						$score = $score + $openinggap;
+					}
+					else
+					{
+						$displscore .= $extendgap;
+						$score = $score + $extendgap;
+					}
+				}
+			}
+			else # perfect or imperfect match
+			{			
+				if(substr($aligned1[$z],$i,1) eq substr($aligned2[$z],$i,1))
+				{
+					print OUTPUT "|";
+				}
+				else
+				{
+					print OUTPUT " ";
+				}
+				
+				if($i!=0)
+				{
+					$displscore .= "\+($MATRIX{substr($aligned1[$z],$i,1)}{substr($aligned2[$z],$i,1)})";
+				}
+				else
+				{
+					$displscore .= "($MATRIX{substr($aligned1[$z],$i,1)}{substr($aligned2[$z],$i,1)})";
+				}
+				
+				$score = $score + $MATRIX{substr($aligned1[$z],$i,1)}{substr($aligned2[$z],$i,1)};
+				
+				# reset gap flags
+				$gapseq1 = 0;
+				$gapseq2 = 0;
+			}
+			
+			# breaks long sequence alignment into sets of 60 for clearer output
+			if(!(($i+1)%60)&&($i!=0))
+			{
+				last;
+			}
+			
+		} # for loop
+		
+		print OUTPUT "\n",substr($aligned2[$z],$j,60),"\n";
+		
+		$j += 60;
+	} # while loop
+	
+	## prints alignment score
+	print OUTPUT "\n<<< ALIGNMENT SCORE $num >>>\n$displscore \n\= $score\n";
+}
+
+## prints scoring matrix
+print OUTPUT "\n<<< SCORING MATRIX >>>\n";
+for (my $i=0; $i<=@seq2; $i++)
+{
+	if($i==0)	{	print OUTPUT "\t\-";	}
+	else { my $newi = $i - 1; print OUTPUT "\t$seq2[$newi]"; }
+}
+print OUTPUT "\n";
+
+for (my $i=0; $i<=@seq1; $i++)
+{
+	if($i==0) { print OUTPUT "\-"; } 
+	else { my $newi = $i - 1; print OUTPUT "$seq1[$newi]"; }
+	for (my $j=0; $j<=@seq2; $j++)
+	{
+		print OUTPUT "\t$dpmatrix[$i][$j]{score}";
+	}
+	print OUTPUT "\n";
+}
+
+close (INPUT);
+close (MATRIX);
+close (OUTPUT);
+
+######################################################################################
+######################################################################################
+## this function implements the Smith-Waterman Algorithm
+## give sequence 1 and 2, and the matrix
+sub SW
+{
+	my ($openinggap, $extendgap) = (shift, shift);
+	my @seq1 = @{(shift)}; 
+	my @seq2 = @{(shift)};
+	my %MATRIX = %{(shift)};
+
+	## initialization
+	my @dpmatrix;
+	
+	# seq1 is on the vertical axis (rows)
+	for(my $i=0; $i<=@seq1; $i++) 
+	{
+		# seq2 is on the horizontal axis (columns)
+		for (my $j=0; $j<=@seq2; $j++) 
+		{
+	    $dpmatrix[$i][$j]{score} = 0;
+	    $dpmatrix[$i][$j]{pointer} = 'none';
+	    $dpmatrix[$i][$j]{gap} = 0;
+		}
+	}
+	
+	## fill matrix using dynamic programming
+	my $max_i     = 0; # seq1
+	my $max_j     = 0; # seq2
+	my $max_score = 0;
+	
+	for(my $i=1; $i<=@seq1; $i++) # move row
+	{
+	    for(my $j=1; $j<=@seq2; $j++) # move col
+	    {
+	        my ($diagonal_score, $left_score, $up_score);     
+	        
+	        # calculate match score
+	        my $letter1 = $seq1[$i-1];
+	        my $letter2 = $seq2[$j-1];       
+	            	        
+	        # cater to the first entry
+	        if($i == 1 && $j == 1)
+	        {
+	        	$dpmatrix[$i][$j]{score} = $dpmatrix[$i-1][$j-1]{score} + $MATRIX{$letter1}{$letter2};
+	        	$dpmatrix[$i][$j]{pointer} = 'diagonal';
+	        	
+	        	# there is still a possibility of this being negative here
+	        	if($dpmatrix[$i][$j]{score} <= 0)
+	        	{
+	        		$dpmatrix[$i][$j]{score} = 0;
+	        		$dpmatrix[$i][$j]{pointer} = 'none';
+	        	}
+	        	next;
+	        }
+	        
+	        # scoring
+	        $diagonal_score = $dpmatrix[$i-1][$j-1]{score} + $MATRIX{$letter1}{$letter2};
+	        
+	        if($dpmatrix[$i-1][$j]{pointer} ne 'up')
+	        {
+	        	$up_score   = $dpmatrix[$i-1][$j]{score} + $openinggap;
+	        }
+	        else
+	        {
+	        	$up_score   = $dpmatrix[$i-1][$j]{score} + $extendgap;
+	        }
+	        	        
+	        if($dpmatrix[$i][$j-1]{pointer} ne 'left')
+	        {
+	        	$left_score = $dpmatrix[$i][$j-1]{score} + $openinggap;
+	        }
+	        else
+	        {
+	        	$left_score = $dpmatrix[$i][$j-1]{score} + $extendgap;
+	        }
+	      	
+	        # maintaining non-negativity        	        
+	        if ($diagonal_score <= 0 and $up_score <= 0 and $left_score <= 0) 
+	        {
+	            $dpmatrix[$i][$j]{score}   = 0;
+	            $dpmatrix[$i][$j]{pointer} = "none";
+	            next; # terminate this iteration of the loop
+	        }
+	                
+	        # choose best score out of diagonal, top and left
+	        my @comparescore;
+	        $comparescore[0] = $diagonal_score;
+	        $comparescore[2] = $up_score;
+	        $comparescore[1] = $left_score;
+	        my $highestscore = 0;
+	        my $highestscoreindex = 0;
+	        
+	        # note that the diagonal is chosen when there is a tie then up then left          
+	        for (my $i=0;$i<@comparescore;$i++)
+	        {
+	        		if($comparescore[$i] > $highestscore)
+	        		{
+	        			$highestscore = $comparescore[$i];
+	        			$highestscoreindex = $i;
+	        		}
+	        }
+	   	        
+	        if($highestscoreindex == 0)
+	        {
+	        	$dpmatrix[$i][$j]{score}   = $diagonal_score;
+	          $dpmatrix[$i][$j]{pointer} = "diagonal";
+	        }
+	        elsif($highestscoreindex == 2) 
+	        {
+ 		     		 $dpmatrix[$i][$j]{score}   = $up_score;
+             $dpmatrix[$i][$j]{pointer} = "up";
+	        }
+	        elsif($highestscoreindex == 1) 
+	        {
+	        	 $dpmatrix[$i][$j]{score}   = $left_score;
+	           $dpmatrix[$i][$j]{pointer} = "left";
+	        }	        	
+	    	
+	    		#debug
+	        #print "$diagonal_score|$up_score|$left_score||HIGH=$highestscore|$dpmatrix[$i][$j]{score}|$dpmatrix[$i][$j]{pointer}|$letter1|$letter2\n";
+	        	        	                
+	        # set maximum score
+	        if ($dpmatrix[$i][$j]{score} > $max_score) 
+	        {
+	            $max_i     = $i;
+	            $max_j     = $j;
+	            $max_score = $dpmatrix[$i][$j]{score};
+	        }
+	    }
+	}
+	
+	## possibly found multiple optimal alignments
+	my @maxscorei;
+	my @maxscorej;
+	my $ctr = 0;
+	
+	for (my $i=0; $i<=@seq1; $i++)
+	{
+		for (my $j=0; $j<=@seq2; $j++)
+		{
+			if($dpmatrix[$i][$j]{score} == $max_score)
+			{
+				$maxscorei[$ctr] = $i;
+				$maxscorej[$ctr] = $j;
+				$ctr++;
+			}
+		}
+	}
+
+	## trace-back
+	my @align1;
+	my @align2;
+	
+	for (my $k=0;$k<@maxscorei;$k++)
+	{
+		my $j = $maxscorej[$k];
+		my $i = $maxscorei[$k];
+		my $num = $k+1;
+		
+		while (1) 
+		{
+		    last if $dpmatrix[$i][$j]{pointer} eq "none";
+		    
+		    if ($dpmatrix[$i][$j]{pointer} eq "diagonal") {
+		        $align1[$k] .= $seq1[$i-1];
+		        $align2[$k] .= $seq2[$j-1];
+		        $dpmatrix[$i][$j]{score} .= "\*$num";
+		        $i--; $j--;
+		    }
+		    elsif ($dpmatrix[$i][$j]{pointer} eq "left") {
+		        $align1[$k] .= "-";
+		        $align2[$k] .= $seq2[$j-1];
+		        $dpmatrix[$i][$j]{score} .= "\*$num";
+		        $j--;
+		    }
+		    elsif ($dpmatrix[$i][$j]{pointer} eq "up") {
+		        $align1[$k] .= $seq1[$i-1];
+		        $align2[$k] .= "-";
+		        $dpmatrix[$i][$j]{score} .= "\*$num";
+		        $i--;
+		    }   
+		}
+		
+		## reverse seq since traceback started from bottom of matrix
+		$align1[$k] = reverse $align1[$k];
+		$align2[$k] = reverse $align2[$k];
+	}
+	
+	return (\@align1, \@align2, \@dpmatrix);
+}

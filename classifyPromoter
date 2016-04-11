@@ -1,0 +1,269 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+classifyPromoter
+
+=head1 SYNOPSIS
+
+ classifyPromoter [options] <input-file>	
+
+  -h help
+  -r reference file, BED file format, col1=chromosome, col2=start position (0-based)
+  
+  Input:
+  This file takes in a tab-delimited file that contains methylation metric in col3 to classify promoters based on gene start position in the reference file.
+  
+  This assumes that each line in the input file spans 100 bp and both files are from the same chromosome.
+  
+ 	Output:
+ 	<inputfilename>.txt
+ 	BED file format, with 
+ 	col1=chromosome, 
+ 	col2=start (0-based), 
+ 	col3=end, 
+ 	col4=promoter code, 
+ 	col5=promoter methylation count (per base of methylated promoter region), 
+ 	col6=genebody methylation count (per base of methylated genebody region), 
+ 	col7=gene expression
+ 	col8=gene identifier
+ 	
+ 	<inputfilename>.promoter
+ 	BED file format, with 
+ 	col1=chromosome, 
+ 	col2=start (0-based), 
+ 	col3=end, 
+ 	col4=current promoter position, 
+ 	col5=rounded off promoter position (start position of MBD file), 
+ 	col6=methylation count (raw from MBD)
+ 	col7=promoter,1 - proximal (-200 to +500bp), 2 - intermediate (-200 to -1000bp), 3 - distal (-1000 to -2200bp)
+ 	col8=gene identifier
+ 	
+ 	<inputfilename>.genebody
+ 	same as <inputfilename>.promoter, except for col5, col6 and col7 replaced with a single col5=methylation count (raw total from MBD)
+ 	
+ 	This can be modified to be more generic. But for the purpose of this assignment, it should be sufficient.
+ 	
+  Example:
+     classifyPromoter -r wholegene.txt rawdata.mbd
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $refFile;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'r=s'=>\$refFile) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## ref file
+open (REF, $refFile) || die "Cannot open $refFile: $!";
+
+## input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+my $ofile = "$name.txt";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+print OUTPUT "chromosome\tstart\tend\tpromoterCode\tPromotermethCount\tGenebodymethCount\tgeneExp\tgeneID\n";
+
+## output file2
+my $ofile2 = "$name.promoter";
+open(OUTPUT2, ">$ofile2") || die "Cannot open $ofile2: $!";
+print OUTPUT2 "chromosome\tstart\tend\tcurrPos\troundPos\tmethCount\tpromoter\tgeneID\n";
+
+## output file3
+my $ofile3 = "$name.genebody";
+open(OUTPUT3, ">$ofile3") || die "Cannot open $ofile3: $!";
+print OUTPUT3 "chromosome\tstart\tend\tcurrPos\tmethCount\tgeneID\n";
+
+## log file
+my $logfile = "classifyP-$name.log";
+open(LOG, ">$logfile") || die "Cannot open $logfile: $!";
+
+# variables
+my @referencePos;
+my @referenceEndPos;
+my @referenceGeneExp;
+my $ctr = 0;
+my %loglog;
+
+# read ref (genes) file
+while (<REF>)
+{
+	s/\r?\n?$//;
+	my @col = split(/\t/,$_);
+	chomp @col;
+	
+	$referencePos[$ctr] = $col[1];
+	$referenceEndPos[$ctr] = $col[2];
+	$referenceGeneExp[$ctr] = $col[3];
+	$ctr++;
+}
+
+# variables
+my %inputPos2mbd;
+my $chromosome;
+
+# read input (mbd) file
+while (<INPUT>)
+{
+	s/\r?\n?$//;
+	my @fields = split(/\t/, $_);
+	chomp @fields;
+	$chromosome = $fields[0];
+	
+	if(!exists($inputPos2mbd{$fields[1]}))
+	{
+		$inputPos2mbd{$fields[1]} = $fields[3];
+	}
+	else
+	{
+		warn "repeated position\@$fields[0]:$fields[1]-$fields[2],$inputPos2mbd{$fields[1]} VS $fields[3]";
+	}
+}
+
+# compare
+# variables
+my $proximal = 0;
+my $intermediate = 0;
+my $distal = 0;
+
+for(my $i=0;$i<@referencePos;$i++)
+{
+	# banking on the fact that each interval is 100bp
+	my $genenum = $i + 1;
+	my $methProfile = 0;
+	
+	my $proximal = 0;
+	my $intermediate = 0;
+	my $distal = 0;
+	my $ctr = 0;
+
+	my $methGeneBody = 0;
+	
+	# 1 - proximal (-200 to +500bp)
+  for(my $j=-200;$j<=500;$j+=100)
+  {
+  	my $promoterPos = $referencePos[$i] + $j;
+  	my $roundcurr = floor100($promoterPos) + 1;
+  	
+  	if(exists($inputPos2mbd{$roundcurr}))
+  	{
+  		print OUTPUT2 "$chromosome\t$referencePos[$i]\t$referenceEndPos[$i]\t$promoterPos\t$roundcurr\t$inputPos2mbd{$roundcurr}\t1\t$genenum\n";
+  		$proximal = $proximal + $inputPos2mbd{$roundcurr};
+  		$ctr++;
+  	}
+  	else
+  	{
+  		my $nn = "no such position $referencePos[$i] in $ifile";
+  		$loglog{$nn} = 1;
+  	}
+  }
+  
+  $methProfile = ($proximal == 0) ? ($methProfile + 0) : ($methProfile + 1);
+  
+  # 2 - intermediate (-200 to -1000bp)
+  for(my $j=-1000;$j<=-200;$j+=100)
+  {
+  	my $promoterPos = $referencePos[$i] + $j;
+  	my $roundcurr = floor100($promoterPos) + 1;
+  	if(exists($inputPos2mbd{$roundcurr}))
+  	{
+  		print OUTPUT2 "$chromosome\t$referencePos[$i]\t$referenceEndPos[$i]\t$promoterPos\t$roundcurr\t$inputPos2mbd{$roundcurr}\t2\t$genenum\n";
+  		$intermediate = $intermediate + $inputPos2mbd{$roundcurr};
+  		$ctr++;
+  	}
+  	else
+  	{
+  		my $nn = "no such position $referencePos[$i] in $ifile";
+  		$loglog{$nn} = 1;
+  	}
+  }
+  
+  $methProfile = ($intermediate == 0) ? ($methProfile + 0) : ($methProfile + 10);
+  
+  # 3 - distal (-1000 to -2200bp)
+  for(my $j=-2200;$j<=-1000;$j+=100)
+  {
+  	my $promoterPos = $referencePos[$i] + $j;
+  	my $roundcurr = floor100($promoterPos) + 1;
+  	if(exists($inputPos2mbd{$roundcurr}))
+  	{
+  		print OUTPUT2 "$chromosome\t$referencePos[$i]\t$referenceEndPos[$i]\t$promoterPos\t$roundcurr\t$inputPos2mbd{$roundcurr}\t3\t$genenum\n";
+  		$distal = $distal + $inputPos2mbd{$roundcurr};
+  		$ctr++;
+  	}
+  	else
+  	{
+  		my $nn = "no such position $referencePos[$i] in $ifile";
+  		$loglog{$nn} = 1;
+  	}
+  }
+  $methProfile = ($distal == 0) ? ($methProfile + 0) : ($methProfile + 100);
+  my $totalmeth = ($proximal + $intermediate + $distal)/($ctr*100);
+  
+  # genebody
+  my $roundgenestart = floor100($referencePos[$i]) + 1;
+  my $roundgeneend = floor100($referenceEndPos[$i]) + 1;
+  my $bodyctr = 0;
+  for(my $j=$roundgenestart;$j<=$roundgeneend;$j+=100)
+  {
+  	if(exists($inputPos2mbd{$j}))
+  	{
+  		$methGeneBody = $methGeneBody + $inputPos2mbd{$j};
+  		print OUTPUT3 "$chromosome\t$referencePos[$i]\t$referenceEndPos[$i]\t$j\t$inputPos2mbd{$j}\t$genenum\n";
+  		$bodyctr++;
+  	}
+  	else
+  	{
+  		my $nn = "no such position $j in $ifile";
+  		$loglog{$nn} = 1;
+  	}
+  }
+  my $totalmethGeneBody = $methGeneBody/($bodyctr*100);
+  print OUTPUT "$chromosome\t$referencePos[$i]\t$referenceEndPos[$i]\t$methProfile\t$totalmeth\t$totalmethGeneBody\t$referenceGeneExp[$i]\t$genenum\n";
+}
+
+## print logfile
+for my $warns (sort keys %loglog)
+{
+	print LOG "$warns\n";
+}
+
+close(REF);
+close(INPUT);
+close(OUTPUT);
+close(OUTPUT2);
+close(OUTPUT3);
+close(LOG);
+	
+#### this function rounds down to nearest 100	
+sub floor100
+{
+	my $num = shift;
+	my $numnum = $num % 100;
+	return ($num - $numnum);
+}

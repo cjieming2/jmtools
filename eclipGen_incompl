@@ -1,0 +1,293 @@
+#!/usr/bin/perl -w
+
+use strict;
+use warnings; 
+use fralib;
+use Getopt::Long;
+use Pod::Usage;
+use File::Basename;
+
+=head1 NAME
+
+eclipGen
+
+=head1 SYNOPSIS
+
+eclipGen [options] <TG file>
+
+   -h    displays this help page
+   -s    SA file (required); tab-delimited file containing information about the samples
+         fields required: sex
+         
+   -M    MK file (required); tab-delimited file containing information about the markers
+         fields required: chromosome, position, snp-id, allele
+         assuming SNPs are biallelic
+               
+   -g    gt file (required); transpose of TG file
+   
+   Example:
+   
+      eclipGen -s samples.sa -M snps.mk -g geno.gt geno.tg
+      
+Outputs the input files for eclipse:
+(a) .loc: map file: space-delimited
+(b) .ped: ped file: space-delimited
+(c) .in: error rate file: space-delimited
+(d) config: configuration/parameters file
+
+** Note that if all the data are missing, a -1 is assigned to the PAF
+** Cater to y chr only, not x
+
+=head1 DESCRIPTION
+
+=cut
+
+# option variables
+my $help = 0;
+my $saFile;
+my $mkFile;
+my $gtFile;
+
+# command line error handling
+if (!GetOptions ('h'=>\$help, 's=s'=>\$saFile, 'm=s'=>\$mkFile, 'g=s'=>\$gtFile) 
+		|| scalar(@ARGV)!=1))
+{
+	if ($help)
+  {
+      pod2usage(-verbose => 2);
+  }
+  else
+  {
+      pod2usage(1);
+  }
+}
+
+my $tgFile = $ARGV[0];
+isTg($tgFile) || die "$tgFile not a tgfile";
+ifGt($gtFile) || die "$gtFile not a gtfile";
+
+if (!(defined($mkFile)) || !(defined($saFile)))
+{
+	die "Lack of parameters!: $!";
+}
+
+# input files
+open (SA, $saFile) || die "Cannot open $saFile: $!";
+open (TG, $tgFile) || die "Cannot open $tgFile: $!";
+
+# output files
+my ($name, $path, $ext) = fileparse($tgFile, '\..*');
+my $dir = "eclipse-$name";
+mkdir ($dir) || die "Cannot create directory: $!";
+
+my $mapFile = "$dir/$name.loc";
+my $pedFile = "$dir/$name.ped";
+my $errFile = "$dir/$name.in";
+
+open (MAPP, ">$mapFile") || die "Cannot open $mapFile: $!";
+open (PED, ">$pedFile") || die "Cannot open $pedfile: $!";
+#open (ERR, ">$errFile") || die "Cannot open $errFile: $!";
+#open (CONFIG, ">$configFile") || die "Cannot open $configFile: $!";
+
+# variables
+my $saheaderProcessed = 0;
+my $sexCol = 0;
+
+### reads SA file, reads also GT file for PED file creation
+while (<SA>)
+{
+	my @items = split("\t",$_);
+	chomp @items;
+	
+	if (!$saheaderProcessed)
+	{
+		for (my $i=0;$i<@items;$i++)
+		{
+			if ($items[$i] eq 'sex')
+			{
+				$sexCol = $i;
+				last;
+			}
+		}
+		$saheaderProcessed = 1;
+	}
+	else
+	{
+		my $sampleid = $items[0];
+		print PED "$sampleid\tFAM_$sampleid\t0\t0\t$items[$sexCol]\t";
+		searchGT($gtFile, $sampleid);
+	}
+	
+}
+
+# variables
+my $headerProcessed = 0;
+my $aline;
+my @manylines;
+
+### reads TG file for MAP file creation
+while (<TG>)
+{
+	my @items = split("\t",$_);
+	chomp @items;
+	
+	if (!$headerProcessed)
+	{
+		$headerProcessed = 1;
+	}
+	else
+	{
+		my $snpid = $items[0];
+		
+		# search marker file to write into MAP file
+		# prints chr, pos, number of alleles=2, and the first allele A
+		# $chr information is for PAF use in non-auto chr
+		my $chr = searchMK('chr', $mkFile, $snpid);
+		my $chrpos = searchMK('chrpos', $mkFile, $snpid);
+		
+		# calculate PAF for allele B (and A)
+		my $countB = 0;
+		my $total = 0;
+		
+		for (my $i=1; $i<@items; $i++)
+		{
+			if ($chr eq 'Y')
+			{
+				if (($items[$i] != -1) && ($items[$i] != 1))
+				{
+					$countB += $items[$i]>>1;
+					$total += 1;
+				}
+			}# Y chr
+			else
+			{
+				if ($items[$i]!=-1)
+				{
+					$countB += $items[$i];
+					$total += 2;
+				}
+			}# autosomes + X; note males and females need to take into consideration too --> incomplete
+		}
+		
+		my $alleleB = searchMK('alleleB', $mkFile, $snpid);
+		
+		if ($total==0)
+		{
+			$aline = "$chrpos"." "."-1 $alleleB -1";
+		}
+		else
+		{
+			my $pafB = $countB/$total;
+			my $pafA = 1 - $pafB;
+			
+			$aline = "$chrpos"." "."$pafA $alleleB $pafB";
+		}
+		push (@manylines, $aline);
+	}
+}# 1 line, 1 SNP
+
+my @sortedlines = sort(@manylines);
+
+foreach my $i (@sortedlines)
+{
+	print MAPP "$i\n";
+}
+
+#close (ERR);
+#close (CONFIG);
+close (PED);
+close (MAPP);
+close (TG);
+close (SA);
+
+################################################################
+# search GT file
+
+sub searchGT
+{
+	my ($gtFile, $sampleid)= (shift, shift);
+	open (GTT, $gtFile) || die "Cannot open $gtFile: $!";
+	
+	while (<GTT>)
+	{
+		my @items = split("\t", $_, 2);
+		chomp @items;
+		if($sampleid eq $items[0])
+		{
+			$items[1] =~ s/\t/' '/g;
+			print PED "$items[1]\n";
+		}
+	}	
+		
+	close (GTT);
+}
+################################################################
+# search MK file
+
+sub searchMK
+{
+	my ($flag, $mkFile, $snp) = (shift, shift, shift);	
+	my $headerProcessed = 0;
+	my %label2col;
+	my $chr = 0;
+	my $pos = 0;
+	my $alleles;
+	
+	open (MK, $mkFile) || die "Cannot open $mkFile: $!";
+	
+	LINE: while (<MK>)
+	{
+		my @field = split("\t", $_);
+		chomp @field;
+		
+		if (!$headerProcessed)
+		{
+			SEARCH_LABEL: for my $label ('chromosome', 'position', 'alleles')
+			{
+				foreach my $col (0 .. $#field)
+				{
+					if ($field[$col] eq $label)
+					{
+						$label2col{$label} = $col;
+						next SEARCH_LABEL;
+					}
+				}
+			}
+			
+			$headerProcessed = 1;
+		}# process header
+		else 
+		{
+			# find SNP in MK file
+			if ($snp eq $field[0])
+			{
+				$chr = $field[$label2col{'chromosome'}];
+				$pos = $field[$label2col{'position'}];
+				$alleles = $field[$label2col{'alleles'}];
+			}
+			else
+			{
+				next LINE;
+			}
+		}# processed header alr
+	}
+	
+	if ($flag eq 'chr')
+	{
+		return $chr;
+	}
+	elsif ($flag eq 'chrpos')
+	{
+		my @allele = split("\/", $alleles);
+		
+		return "$chr $pos 2 $allele[0]";
+	}
+	elsif ($flag eq 'alleleB')
+	{
+		my @allele = split("\/", $alleles);
+		
+		return $allele[1];
+	}
+
+	close (MK);
+}

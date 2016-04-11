@@ -1,0 +1,188 @@
+#!/usr/bin/perl -w
+
+## COMMENTS
+## test for 4 situations:
+## situation 1: a1-a2 within t1-t2
+## situation 2: t1-t2 within a1-a2
+## situation 3:          a1-------a2
+##									t1--------t2	
+## situation 4: 		a1--------a2
+##											 t1-------t2	
+## also test if chromosome same
+
+## subject=affy
+## reference=tags (dpets)
+
+## sv-analysis4vik <subject> <reference>
+
+## file format
+## 1st col: chr
+## 2nd col: start
+## 3rd col: end
+## the original of foverlap4vik
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+overlappingTags4vik
+
+=head1 SYNOPSIS
+
+ overlappingTags4vik -r <reference-file> <subject-file>	
+
+  -h help
+  <reference-file>, <subject-file>
+ header includes the following columns (strictly in this order):
+ 1st col: chromosome
+ 2nd col: start
+ 3rd col: end              
+  
+
+ This script tests for 4 overlapping situations between a reference tag (t) and subject/query tag (a): 
+ situation 1: a1-a2 within t1-t2
+ situation 2: t1-t2 within a1-a2
+ situation 3:          a1-------a2
+                 t1--------t2
+ situation 4:    a1--------a2
+                       t1-------t2
+                       
+ Also test if chromosomes are the same.
+
+ Outputs a file with the filename based on the reference file z-tags-<reference>-checked.out and the following headers:
+ 1)achr 2)a1 3)a2
+ 4)tchr 5)t1 6)t2
+ 7)situation
+
+  Example:
+     overlappingTags4vik -r dpets.txt affy-tags.txt
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $tags;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'r=s'=>\$tags) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+
+
+# variables
+my $affy=$ARGV[0];
+my($name, $path, $ext) = fileparse($tags, '\..*');
+my $ofile="z-tags-$name-checked.out";
+my $headerAffyPro = 0;
+my $headerTagPro = 0;
+
+# input files
+open(AFFY, $affy) || die "Cannot open $affy";
+my @affy=<AFFY>;
+
+open(TAGS, $tags) || die "Cannot open $tags";
+my @tags=<TAGS>;
+
+for my $i ($affy[0], $tags[0])
+{
+	chomp $i;
+	my @headers = split(/\t/, $i);
+	chomp @headers;
+	
+	if(($headers[0] ne 'chromosome') || ($headers[1] ne 'start') || ($headers[2] ne 'end'))
+	{
+		die "Headers $headers[0]|$headers[1]|$headers[2] are erroneous in order or the name itself; please do a head -1 on the files to check:$!";
+	}
+}
+
+
+# output file
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+print OUTPUT "achr\ta1\ta2\ttchr\tt1\tt2\tsituation\n";
+
+## in the affy-subject file
+LINE1: foreach my $line1 (@affy)
+{
+	chomp $line1;
+	my @affyPos = split(/\t/, $line1);
+	chomp @affyPos;
+	
+	my $achr = $affyPos[0];
+	my $a1 = $affyPos[1];
+	my $a2 = $affyPos[2];
+	
+	if ($a1 eq 'start') ###############change this header
+	{
+		next LINE1;
+	}
+	
+	## in the reference file tags
+	LINE2: foreach my $line2 (@tags)
+	{
+		chomp $line2;
+		my @tagsPos = split(/\t/, $line2);
+		chomp @tagsPos;
+	
+		my $tchr = $tagsPos[0];
+		my $t1 = $tagsPos[1];
+		my $t2 = $tagsPos[2];
+			
+		if ($t1 eq 'start') ###############change this header
+		{
+			next LINE2;
+		}
+		
+		if($achr eq $tchr)
+		{
+			#situation 1
+			if(($a1>=$t1)&&($a2<=$t2))
+			{
+				print OUTPUT "$achr\t$a1\t$a2\t$tchr\t$t1\t$t2\t1\n";
+			}
+			elsif (($a1<=$t1)&&($a2>=$t2)) #situation2
+			{
+				print OUTPUT "$achr\t$a1\t$a2\t$tchr\t$t1\t$t2\t2\n";
+			}
+			elsif (($a1>=$t1)&&($a1<$t2)&&($a2>=$t2)) #situation3 note that to have an overlapping region a1!=t2
+			{
+				print OUTPUT "$achr\t$a1\t$a2\t$tchr\t$t1\t$t2\t3\n";
+			}
+			elsif (($a1<=$t1)&&($a2>$t1)&&($a2<=$t2)) #situation4 note that to have an overlapping region a2!=t1
+			{
+				print OUTPUT "$achr\t$a1\t$a2\t$tchr\t$t1\t$t2\t4\n";
+			}
+			else
+			{
+				print OUTPUT "$achr\t$a1\t$a2\t$tchr\t$t1\t$t2\t0\n";
+			}
+		} ## chr matching
+		else
+		{
+			print OUTPUT "$achr\t$a1\t$a2\t$tchr\t$t1\t$t2\tchr-not-matched\n";
+		} ## chr dun match
+	} ## ref dpets file 
+} ## subject-affy file 
+
+
+
+close(AFFY);
+close(TAGS);
+close(OUTPUT);

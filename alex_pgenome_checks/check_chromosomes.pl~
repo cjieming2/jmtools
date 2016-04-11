@@ -1,0 +1,162 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+
+my $usage = $0." pat_chrom_file mat_chrom_file ref_crom_file map_file\n";
+if (scalar(@ARGV) < 4) {
+    print STDERR $usage;
+    exit;
+}
+
+my @seqs = ();
+if (!parseSequence($ARGV[0])) { exit; }
+if (!parseSequence($ARGV[1])) { exit; }
+if (!parseSequence($ARGV[2])) { exit; }
+
+my $n_seq = scalar(@seqs);
+if ($n_seq < 3) {
+    print STDERR "Not enough sequences.\n";
+    exit;
+}
+if ($n_seq > 3) {
+    print STDERR "Too many sequences.\n";
+    exit;
+}
+
+my $file = $ARGV[3];
+if (!open(FILE,$file)) {
+    print STDERR "Can't open file '",$file,"'.\n";
+    next;
+}
+my ($pl,$ml,$rl) = (length($seqs[0]),length($seqs[1]),length($seqs[2]));
+#print $pl," ",$ml," ",$rl,"\n";
+#exit;
+
+
+my ($pms,$prs,$mrs) = (0,0,0);
+my ($pmn,$prn,$mrn) = (0,0,0);
+my $line = <FILE>;
+$line = <FILE>;
+my ($rr,$pp,$mm) = split(/\s+/,$line);
+my ($pi,$mi,$ri) = (1,1,1);
+if ($pp < 0) { $pi = 0; }
+if ($mm < 0) { $mi = 0; }
+if ($rr < 0) { $ri = 0; }
+while ($line = <FILE>) {
+    my ($r,$p,$m) = split(/\s+/,$line);
+    if ($pp > 0 && $mm > 0 && $rr > 0) {
+	while (($p == 0 || $pp < $p) &&
+	       ($m == 0 || $mm < $m) &&
+	       ($r == 0 || $rr < $r)) {
+	    if ($p > 0 || $m > 0) {
+		$pmn++;
+		$pms += count($pp,$mm,\$seqs[0],\$seqs[1]);
+	    }
+	    if ($p > 0 || $r > 0) {
+		$prn++;
+		$prs += count($pp,$rr,\$seqs[0],\$seqs[2]);
+	    }
+	    if ($m > 0 || $r > 0) {
+		$mrn++;
+		$mrs += count($mm,$rr,\$seqs[1],\$seqs[2]);
+	    }
+	    $pi++; $mi++; $ri++;
+	    $pp++; $mm++; $rr++;
+	}
+	$pi--; $mi--; $ri--;
+    }
+    if ($p > 0) { $pi++; }
+    if ($m > 0) { $mi++; }
+    if ($r > 0) { $ri++; }
+    if ($p > 0 || $m > 0) {
+	$pmn++;
+	$pms += count($pp,$mm,\$seqs[0],\$seqs[1]);
+    }
+    if ($p > 0 || $r > 0) {
+	$prn++;
+	$prs += count($pp,$rr,\$seqs[0],\$seqs[2]);
+    }
+    if ($m > 0 || $r > 0) {
+	$mrn++;
+	$mrs += count($mm,$rr,\$seqs[1],\$seqs[2]);
+    }
+    if (($p > 0 && $pi != $p) ||
+	($m > 0 && $mi != $m) ||
+	($r > 0 && $ri != $r)) {
+	print $file," error at record ",$line;
+    }
+    $pp = $p;
+    $mm = $m;
+    $rr = $r;
+
+#    print $line;
+#    if ($pmn > 0) { print $pms/$pmn,"\n"; }
+#    if ($prn > 0) { print $prs/$prn,"\n"; }
+#    if ($mrn > 0) { print $mrs/$mrn,"\n"; }
+}
+close(FILE);
+
+while ($pi < $pl && $mi < $ml && $ri < $rl) {
+    $pi++; $mi++; $ri++;
+}
+
+if ($pi != $pl || $mi != $ml || $ri != $rl) {
+    print "Error in sequence length.\n";
+    print "(pi,pl) = ",$pi," ",$pl,"\n";
+    print "(mi,ml) = ",$mi," ",$ml,"\n";
+    print "(ri,rl) = ",$ri," ",$rl,"\n";
+}
+
+my ($pmv,$prv,$mrv) = (0,0,0);
+if ($pmn > 0) { $pmv = (int($pms/$pmn*10000))/100.; }
+if ($prn > 0) { $prv = (int($prs/$prn*10000))/100.; }
+if ($mrn > 0) { $mrv = (int($mrs/$mrn*10000))/100.; }
+
+print $file," ",$pmv," (pm) ",$prv," (pr) ",$mrv," (mr)\n";
+
+if ($pmv < 99) {
+    print "Low identity ".$pmv." between paternal and maternal sequences.\n";
+}
+if ($prv < 99) {
+    print "Low identity ".$prv." between paternal and reference sequences.\n";
+}
+if ($mrv < 99) {
+    print "Low identity ".$mrv." between maternal and reference sequences.\n";
+}
+
+exit;
+
+sub parseSequence
+{
+    my $file = shift;
+    if (!open(FILE,$file)) {
+	print STDERR "Can't open file '",$file,"'.\n";
+	return 0;
+    }
+    my ($header,$seq) = ("","");
+    while (my $line = <FILE>) {
+	chomp($line);
+	if (substr($line,0,1) eq ">") {
+	    if (length($seq) > 0) { push(@seqs,$seq); }
+	    $header = $seq = "";
+	} else {
+	    $seq .= $line;
+	}
+    }
+    close(FILE);
+    if (length($seq) <= 0) { return 0; }
+    push(@seqs,$seq);
+    return 1;
+}
+
+sub count
+{
+    my ($i1,$i2,$seq1,$seq2) = @_;
+    if ($i1 > 0 && $i2 > 0) {
+	my $c1 = substr($$seq1,$i1 - 1,1); $c1 =~ tr/[a-z]/[A-Z]/;
+	my $c2 = substr($$seq2,$i2 - 1,1); $c2 =~ tr/[a-z]/[A-Z]/;
+	if ($c1 eq $c2) { return 1; }
+    }
+    return 0;
+}

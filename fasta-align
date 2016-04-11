@@ -1,0 +1,179 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+fasta-align
+
+=head1 SYNOPSIS
+
+ fasta-align [options] -r <fasta-file1> <fasta-file2>	
+
+  -h help
+  -r the reference fasta file
+  -o output file 
+  
+  Basically it aligns two fasta files and pick out mismatches (mm). Requires that the files have the same number of char on each line, typically 60.
+  Currently the script only works on FASTAs with the same number of characters in each.
+  
+  OUTPUT:
+  under the mismatch column, A/B, where A is the char from the ref (-r) fasta, B from the input fasta.
+  
+  Example:
+     fasta-align -r human.fa -o aligned-human-jm.list jm-new.fa
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $reffasta;
+my $outputfile = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'r=s'=>\$reffasta, 'o=s'=>\$outputfile) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+my @inputfastalines = <INPUT>;
+close (INPUT);
+
+## reference fasta
+open (REFERFASTA, $reffasta) || die "Cannot open $reffasta: $!";
+my @reffastalines = <REFERFASTA>;
+close(REFERFASTA);
+
+## check if it's fasta
+if(!(isFasta($ifile)) || !(isFasta($reffasta)))
+{
+	die "Fasta files are required in both parameters!";
+}
+
+## output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+
+my $ofile;
+
+if($outputfile ne 0)
+{
+	$ofile = $outputfile;
+}
+else
+{
+	$ofile = "aligned-$name-mm.list";
+}
+
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+print OUTPUT "position\tmismatch1\-$reffasta\tmismatch2\-$ifile\n";
+
+# variables
+my $ctr = 0;
+my $mmctr = 0;
+my $refdashctr = 0;
+
+### check if line len same
+#chomp $inputfastalines[0];
+#chomp $reffastalines[0];
+#
+### skip the header totally
+#if(length($inputfastalines[1]) ne length($reffastalines[1]))
+#{
+#	close(OUTPUT);
+#	unlink($ofile);
+#	die "The number of char in each line on the fasta are not equal!: $!";
+#}
+
+## loop the num of lines in file
+## skip the header totally
+for(my $h=1; $h<@reffastalines; $h++)
+{
+	chomp $inputfastalines[$h];
+	chomp $reffastalines[$h];
+
+	if(length($inputfastalines[$h]) ne length($reffastalines[$h]))
+  {
+		close(OUTPUT);
+		unlink($ofile);
+		$h = $h+1;
+		#print "\|$inputfastalines[$h]\|$reffastalines[$h]\|\n"; #debug
+		die "The number of char in line $h on the fasta are not equal!: $!";
+	}
+	
+	## loop the num of chars in each line
+	for(my $i=0; $i<length($reffastalines[$h]); $i++)
+	{
+		$ctr++;
+		my @inputfastalinechar = split(//, $inputfastalines[$h]);
+		my @reffastalinechar = split(//, $reffastalines[$h]);
+		
+		if($reffastalinechar[$i] eq '-')
+		{
+			$refdashctr++;
+		}
+		
+		if(uc($inputfastalinechar[$i]) ne uc($reffastalinechar[$i]))
+		{
+			$mmctr++;
+			my $newctr = $ctr - $refdashctr;
+			print OUTPUT "$newctr\t$reffastalinechar[$i]\t$inputfastalinechar[$i]\n";
+		}
+	}
+}
+
+print "Number of mismatch(es): $mmctr\n";
+close (OUTPUT);
+
+if($mmctr == 0)
+{
+	unlink($ofile);
+}
+
+#######################################################################
+## check if it's fasta
+sub isFasta
+{
+	my $file = shift;
+	
+	my($name, $path, $ext) = fileparse($file, '\..*');
+	
+	if($ext eq 'fa')
+	{
+		return 0;
+	}
+	
+	open(INPUT, $file) || die "Cannot open $file";
+	$_ = <INPUT>;
+	close(INPUT);
+	
+	s/\r?\n?$//;
+	
+	my @line = split(//,$_);
+	if($line[0] eq '>')
+	{
+		return 1;
+	}
+	else
+	{
+		return 0;
+	}
+}

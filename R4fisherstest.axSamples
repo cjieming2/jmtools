@@ -1,0 +1,156 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+use Cwd;
+
+=head1 NAME
+
+R4fisherstest
+
+=head1 SYNOPSIS
+
+ R4fisherstest [options] <list of files>
+
+  -h help
+  
+  the 'windowBed' function in bedTools is used for intersection, with -w 0
+  
+  REQUIRES: BEDTOOLS, and sortByChr.sh shell script from jmtools
+  
+  INPUT: <list of files to intersect> 
+  the intersection should occur pairwise, 
+  1st col is the filename for -a, where this script allows redundancy by the 4th col
+  2nd col is the filename for -b, where this script does a merge to remove redundant regions
+  3rd and 4th are names for A and B in Fishers Test (it automatically fills in the non-A and non-B).
+  TO-DO: 
+  -3rd and 4th col need to be changed MANUALLY!
+  -option for -w is 0. Need to change if otherwise.
+                
+ 	OUTPUT:
+ 	1) file ext "fishersresults" contains 2-by-2 table in matrix R format where a,b,c,d correspond to (1,1),(2,1),(1,2),(2,2)
+ 	2) R script with comments for Fishers Exact Test
+ 	on a 2-by-2 table,
+ 	col1 row1 in input = entry (1,1)
+ 	col1 row2 in input = entry (2,1)
+ 	
+ 	entries (1,2) and (2,2) are calculated based on total number of lines for files in input col1 row1 and col1 row2
+ 	
+ 	previous version detects redundant SNP entries (R4fisherstest) on multiple transcripts of the same genetic location.
+ 	this script retains that redundancy, since we are counting each individual as an entry too.
+ 	
+  Example:
+     R4fisherstest.axSamples jm.Rfisherslist
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+my $ofile = "$name.fishersresultsCounts";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+## print R script
+my $rscript = "$name.r";
+open (RSCRIPT, ">$rscript") || die "Cannot open $rscript: $!";
+
+
+## variables
+my $ctr = 2;
+my %TwobyTwoTableCol1; 
+my %TwobyTwoTableCol2;
+my %checkcols;
+
+## read input
+while (<INPUT>)
+{
+	## reset ctr
+	if($ctr==0){ $ctr = 2; }
+	
+	chomp;
+	my ($file1,$file2,$name1,$name2) = split(/\t/,$_,4);
+	
+	#print "$file1|$file2|$name1|$name2\n"; ## for debugging purpose
+	my $entry = `sortByChr.sh $file2 | mergeBed -i | intersectBed -a $file1 -b - | sort | uniq | wc -l`;
+	my ($total,$ffile) = split(" ",`wc -l $file1`);
+	my $comEntry = $total - $entry;
+	
+	chomp ($entry, $total, $ffile, $comEntry);
+	
+	$checkcols{$name1} = 1  ;
+	
+	if($ctr==2)
+	{
+		$TwobyTwoTableCol1{$name2} = $entry;
+		$TwobyTwoTableCol2{$name2} = $comEntry;	
+	}
+	
+	if($ctr==1)
+	{
+		$TwobyTwoTableCol1{$name2} = $TwobyTwoTableCol1{$name2}.','.$entry;
+		$TwobyTwoTableCol2{$name2} = $TwobyTwoTableCol2{$name2}.','.$comEntry;	
+	}	
+	
+	## additional check
+#	if($ffile ne $file1)
+#	{
+#		die "wc -l $file1 is not $ffile:$!";
+#	}
+	
+	$ctr--;
+}
+
+## output
+for my $check (sort keys %checkcols)
+{
+	print OUTPUT "$check\n";
+}
+
+my $pwd = getcwd;
+print RSCRIPT "setwd(\"$pwd\")\n";
+for my $ftest (sort keys %TwobyTwoTableCol1)
+{
+	print OUTPUT "$ftest|$TwobyTwoTableCol1{$ftest},";
+	print OUTPUT "$TwobyTwoTableCol2{$ftest}\n";
+	
+	## print R script
+	print RSCRIPT "data <- matrix(c($TwobyTwoTableCol1{$ftest},$TwobyTwoTableCol2{$ftest}), 2,2,\n". 
+									"\t\tdimnames = list(Pathways = c(\"a\",\"non-a\"),SNPs = c(\"$ftest\",\"non-$ftest\")))\n".
+									"x = fisher.test\(data,alternative=\"two.sided\")\n".
+									"y = c(\"$ftest\",paste(x\$estimate),x\$p.value)\n".
+									"write(y,sep=\"\\t\",ncolumns=3,file=\"$name.fishersresults\",append=TRUE)\n";
+}
+
+
+
+close(RSCRIPT);
+close(INPUT);
+close(OUTPUT);
+	

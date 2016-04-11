@@ -1,0 +1,183 @@
+### allelicbias-check-smallfastq <indiv_category> <pgenome> <basename/fastq.gz> <path pgenome> <path snp.calls.bed for het snps> <path fastq.gz> <asb/ase> <flag>
+### e.g. allelicbias-check kilpinen-pooled-rnaseq-na12878 newSV kilpinen_NA12878_ERR356372_pooled.fastq.gz /gpfs/scratch/fas/gerstein/jc2296/personal_genomes/NA12878_pgenome_hg19/1kgp3-svs-pass_NA12878_hg19_150201_w_transcriptome_newSV /gpfs/scratch/fas/gerstein/jc2296/personal_genomes/NA12878_pgenome_hg19/1kgp3-svs-pass_NA12878_hg19_150201_w_transcriptome_newSV/snp.calls.bed /gpfs/scratch/fas/gerstein/jc2296/alleledb/allelicbias/rnaseq 1
+### note for paths no end '/' pls
+## requires the following scripts in environment: ThunderByRob.jar, bsub-make-plus.sh,  map.back.ref.wrapper.sh.ori,  multis-and-unaligneds-wrapper.sh 
+## option 8 uses 'small' fastqi for realignment, meaning these are only the reads that had aligned previously.
+
+#mkdir 6-multi-and-unaligned-$1
+
+## 1 alignment
+if [[ $8 -eq 1 || $8 -eq 0 ]] ; then
+	mkdir 1-alignment-$1
+	cd 1-alignment-$1
+	mkdir trash
+	ln -s $6/$3
+	bsub-make-plus.sh $2-$1-align-mat "zcat $3 | bowtie --best --strata -v 2 -m 1 -q $4/AltRefMother/AltRefMother - > $3.mat.bowtie; echo $3 ; zcat $3 | wc -l ; wc -l $3.mat.bowtie"
+	bsub-make-plus.sh $2-$1-align-pat "zcat $3 | bowtie --best --strata -v 2 -m 1 -q $4/AltRefFather/AltRefFather - > $3.pat.bowtie; wc -l $3.pat.bowtie"
+	cd ..
+fi
+
+## 2 map to ref
+if [[ $8 -eq 2 || $8 -eq 0 ]] ; then
+	mkdir 2-map.back.ref-$1
+	cd 2-map.back.ref-$1
+	mkdir trash
+	ln -s $4/mat2ref.chain
+	ln -s $4/pat2ref.chain
+	cp ~/jmtools/map.back.ref.wrapper.sh.ori map.back.ref.wrapper.sh
+
+	for i in ../1-alignment-$1/*.bowtie
+	do
+	ln -s $i
+	done
+
+	bsub-make-plus.sh $2-$1-map2ref-mat "./map.back.ref.wrapper.sh $3.mat.bowtie maternal MAT mat2ref.chain; awk '{OFS=\"\t\"}{FS=\"\t\"}{print \"chr\"\$0}' $3.mat.bowtie.maternal.map2ref.bed > $3.mat.bowtie.maternal.map2ref.bed_ ; mv $3.mat.bowtie.maternal.map2ref.bed trash ; mv $3.mat.bowtie.maternal.map2ref.bed_ $3.mat.bowtie.maternal.map2ref.bed  ;  wc -l *.maternal.*.bed"
+	bsub-make-plus.sh $2-$1-map2ref-pat "./map.back.ref.wrapper.sh $3.pat.bowtie paternal PAT pat2ref.chain; awk '{OFS=\"\t\"}{FS=\"\t\"}{print \"chr\"\$0}' $3.pat.bowtie.paternal.map2ref.bed > $3.pat.bowtie.paternal.map2ref.bed_ ; mv $3.pat.bowtie.paternal.map2ref.bed trash ; mv $3.pat.bowtie.paternal.map2ref.bed_ $3.pat.bowtie.paternal.map2ref.bed  ;  wc -l *.paternal.*.bed"
+	cd ..
+fi
+
+
+## 3  intersectBed
+if [[ $8 -eq 3 || $8 -eq 0 ]] ; then
+	mkdir 3-intersectBed-$1
+	cd 3-intersectBed-$1
+	mkdir trash
+	ln -s $5
+
+	for i in ../2-map.back.ref-$1/*.map2ref.bed
+	do
+	ln -s $i
+	done
+	
+	bsub-make-plus.sh $2-$1-intersectBed-mat "intersectBed -a $3.mat.bowtie.maternal.map2ref.bed -b snp.calls.bed -wa -wb > intersect.$3.mat.snp.calls.txt ; wc -l intersect.$3.mat.snp.calls.txt"
+	bsub-make-plus.sh $2-$1-intersectBed-pat "intersectBed -a $3.pat.bowtie.paternal.map2ref.bed -b snp.calls.bed -wa -wb > intersect.$3.pat.snp.calls.txt ; wc -l intersect.$3.pat.snp.calls.txt"
+	cd ..
+fi
+
+## 4 flip the reads
+if [[ $8 -eq 4 || $8 -eq 0 ]] ; then
+	mkdir 4-flip-$1
+	cd 4-flip-$1 
+	mkdir trash
+
+	for i in ../3-intersectBed-$1/intersect.*.snp.calls.txt
+	do
+	ln -s $i
+	done
+
+	bsub-make-plus.sh $2-$1-flipread2fastq-mat "flipread2fastq -s 1 intersect.$3.mat.snp.calls.txt > intersect.$3.mat.flipread.fastq;  wc -l intersect.*mat.*"
+	bsub-make-plus.sh $2-$1-flipread2fastq-pat "flipread2fastq -s 1 intersect.$3.pat.snp.calls.txt > intersect.$3.pat.flipread.fastq;  wc -l intersect.*pat.*"
+
+	cd ..
+fi
+
+
+## 5 alignment2
+if [[ $8 -eq 5 || $8 -eq 0 ]] ; then
+	mkdir 5-alignment2-$1
+	cd 5-alignment2-$1
+	mkdir trash
+
+	for i in ../4-flip-$1/*.fastq
+	do
+	ln -s $i
+	done
+
+	bsub-make-plus.sh $2-$1-matflip2mat "bowtie --un intersect.$3.matflip2mat.flipread.unaligned --max intersect.$3.matflip2mat.flipread.multi --best --strata -v 2 -m 1 -q $4/AltRefMother/AltRefMother intersect.$3.mat.flipread.fastq > intersect.$3.matflip2mat.flipread.bowtie;  wc -l intersect.$3.matflip2mat.flipread.*"
+	bsub-make-plus.sh $2-$1-matflip2pat "bowtie --un intersect.$3.matflip2pat.flipread.unaligned --max intersect.$3.matflip2pat.flipread.multi --best --strata -v 2 -m 1 -q $4/AltRefFather/AltRefFather intersect.$3.mat.flipread.fastq > intersect.$3.matflip2pat.flipread.bowtie;  wc -l intersect.$3.matflip2pat.flipread.*"
+
+	bsub-make-plus.sh $2-$1-patflip2mat "bowtie --un intersect.$3.patflip2mat.flipread.unaligned --max intersect.$3.patflip2mat.flipread.multi --best --strata -v 2 -m 1 -q $4/AltRefMother/AltRefMother intersect.$3.pat.flipread.fastq > intersect.$3.patflip2mat.flipread.bowtie;  wc -l intersect.$3.patflip2mat.flipread.*"
+	bsub-make-plus.sh $2-$1-patflip2pat "bowtie --un intersect.$3.patflip2pat.flipread.unaligned --max intersect.$3.patflip2pat.flipread.multi --best --strata -v 2 -m 1 -q $4/AltRefFather/AltRefFather intersect.$3.pat.flipread.fastq > intersect.$3.patflip2pat.flipread.bowtie;  wc -l intersect.$3.patflip2pat.flipread.*"
+
+	bsub-make-plus.sh $2-$1-matflip2ref "bowtie --un intersect.$3.matflip2ref.flipread.unaligned --max intersect.$3.matflip2ref.flipread.multi --best --strata -v 2 -m 1 -q /gpfs/scratch/fas/gerstein/jc2296/reference_genomes/fasta/b37_g1k_phase2/Refhs37d5ss intersect.$3.mat.flipread.fastq > intersect.$3.matflip2ref.flipread.bowtie; wc -l intersect.$3.matflip2ref.flipread.*"
+	bsub-make-plus.sh $2-$1-patflip2ref "bowtie --un intersect.$3.patflip2ref.flipread.unaligned --max intersect.$3.patflip2ref.flipread.multi --best --strata -v 2 -m 1 -q /gpfs/scratch/fas/gerstein/jc2296/reference_genomes/fasta/b37_g1k_phase2/Refhs37d5ss intersect.$3.pat.flipread.fastq > intersect.$3.patflip2ref.flipread.bowtie; wc -l intersect.$3.patflip2ref.flipread.*"
+
+	cd ..
+fi
+
+## 6 unaligned
+if [[ $8 -eq 6 || $8 -eq 0 ]] ; then
+	mkdir 6-unaligned-$1
+	cd 6-unaligned-$1
+	mkdir trash
+
+	ln -s ../5-alignment2-$1/intersect.$3.matflip2pat.flipread.unaligned 
+	ln -s ../5-alignment2-$1/intersect.$3.patflip2mat.flipread.unaligned 
+	
+	### original mat and pat
+	ln -s ../3-intersectBed-$1/intersect.$3.mat.snp.calls.txt
+	ln -s ../3-intersectBed-$1/intersect.$3.pat.snp.calls.txt
+	
+	multis-and-unaligneds-wrapper.sh intersect.$3.matflip2pat.flipread.unaligned intersect.$3.mat.snp.calls.txt mat
+	multis-and-unaligneds-wrapper.sh intersect.$3.patflip2mat.flipread.unaligned intersect.$3.pat.snp.calls.txt pat
+	
+	##ln -s /gpfs/scratch/fas/gerstein/jc2296/1KG/1KG_phase3_hg19/vcf2phased/NA12878.allchr.indels.pass.noCN.phase3_shapeit2_mvncall_integrated_v4.20130502.genotypes.vcf.out.recode.bed
+	##ln -s /gpfs/scratch/fas/gerstein/jc2296/1KG/1KG_phase3_hg19/svs/NA12878_vcf/NA12878.wgs.mergedSV.v5.20130502.svs.genotypes.redun.auto.SVdefined.sorted.pass.bed
+
+	##intersectBed -a originalmatreads.intersect.$3.matflip2pat.flipread.unaligned.bed -b NA12878.wgs.mergedSV.v5.20130502.svs.genotypes.redun.auto.SVdefined.sorted.pass.bed -wa | sortByChr.sh - | uniq | wc -l 
+
+	cd ..
+fi
+
+## 7 multi
+if [[ $8 -eq 7 || $8 -eq 0 ]] ; then
+	mkdir 7-multi-$1
+	cd 7-multi-$1
+	mkdir trash
+
+	ln -s ../5-alignment2-$1/intersect.$3.matflip2pat.flipread.multi
+	ln -s ../5-alignment2-$1/intersect.$3.patflip2mat.flipread.multi
+
+	### original mat and pat
+	ln -s ../3-intersectBed-$1/intersect.$3.mat.snp.calls.txt
+	ln -s ../3-intersectBed-$1/intersect.$3.pat.snp.calls.txt
+	
+	multis-and-unaligneds-wrapper.sh intersect.$3.matflip2pat.flipread.multi intersect.$3.mat.snp.calls.txt mat
+        multis-and-unaligneds-wrapper.sh intersect.$3.patflip2mat.flipread.multi intersect.$3.pat.snp.calls.txt pat
+	
+	##ln -s /gpfs/scratch/fas/gerstein/jc2296/1KG/1KG_phase3_hg19/svs/NA12878_vcf/NA12878.wgs.mergedSV.v5.20130502.svs.genotypes.redun.auto.SVdefined.sorted.pass.bed
+	
+	cd ..
+fi
+
+## 8 fsieve original multi reads from original fastq
+## then run alleleseq again on this filtered fastqs
+if [[ $8 -eq 8 || $8 -eq 0 ]] ; then
+	mkdir 8-rerun-alleleseq-$1-smallfastq
+	cd 8-rerun-alleleseq-$1-smallfastq
+	mkdir trash
+
+	ln -s ../7-multi-$1/originalmatreads.intersect.$3.matflip2pat.flipread.multi.bed
+	ln -s ../7-multi-$1/originalpatreads.intersect.$3.patflip2mat.flipread.multi.bed
+#	ln -s $6/$3	
+
+	## make fastq based on only mapped reads
+	for i in ../2-map.back.ref-$1/*.map2ref.bed
+        do
+        ln -s $i
+	done
+
+	## make filter list
+	cat originalmatreads.intersect.$3.matflip2pat.flipread.multi.bed originalpatreads.intersect.$3.patflip2mat.flipread.multi.bed | sed 's/\#\*o\*\#/\t/g' | cut -f4 | sort | uniq  > originalmatpatreads.multi.ids
+	
+	## Thunder can only do this on cluster since it is Java
+	## 1) bed2fastq for mapped reads from folder 2; concantenating mat and pat contains redundant entries - bedbowtie2fastq gives unique read info
+	## 2) cut for BED and then sort and uniq to obtain ids; Thunder doesnt require them to be in order
+	## 3) Thunder to obtain biasfiltered fastq
+	temp1=$(echo $3)
+	temp2=$(echo biasfiltered.$3)
+	file1=${temp1%fastq.gz}matpat.map2ref.bed
+	file2=${temp1%fastq.gz}matpat.map2ref.fastq.gz
+	file3=${temp2%fastq.gz}matpat.map2ref.fastq.gz
+	
+	## smallfastq - only mapped reads
+	bsub-make-plus-bash.sh $2-$1-fastqfilter-thunder "cat *.map2ref.bed | sortByChr.sh - | uniq > $file1 ; bedbowtie2fastq $file1 | gzip -c > $file2 ; zcat $file2 | java -Xmx2G -jar ~/jmtools/ThunderByRob.jar FilterFastxByIDList -b -IDs ./originalmatpatreads.multi.ids - | gzip -c > $file3    ;  wc -l *.bed  ;  echo $file2 ; zcat $file2 | wc -l ; echo $file3 ; zcat $file3 | wc -l ;  mkdir src  ;  mv $file1 $file2 $3 original* src ; make -f $4/PIPELINE.mk ;  echo \"folder=\\\"$(pwd)/\\\"; setwd(folder)\" | cat - ~/jmtools/allele_readdepth_table_beta\&binomial_distribution_gradient.R > allele_readdepth_table_beta\&binomial_distribution_gradient.R  ;  alleleseqOutput2betabinomFormat.sh $1 $7 counts ; R CMD BATCH allele_readdepth_table_beta\&binomial_distribution_gradient.R  ; echo \"folder=\\\"$(pwd)/\\\"; setwd(folder)\" | cat - ~/jmtools/alleleseq-betabinomial.R > alleleseq-betabinomial.R ; R CMD BATCH alleleseq-betabinomial.R  ;  alleleseqOutput2betabinomFormat.sh $1 $7 interestingHets  ;  alleleseqOutput2betabinomFormat.sh $1 $7 interestingHets.betabinom "
+
+	## largefastq - this is deprecated, pls refer to the main allelic-check
+#	bsub-make-plus-bash.sh $2-$1-fastqfilter-thunder "zcat $3 | java -Xmx2G -jar ~/jmtools/ThunderByRob.jar FilterFastxByIDList -b -IDs ./originalmatpatreads.multi.ids - | gzip -c > biasfiltered.$3    ;  echo $3 ; zcat $3 | wc -l ;  echo biasfiltered.$3 ; zcat biasfiltered.$3 | wc -l ;  mkdir src  ;  mv $3 originalmatreads.intersect.$3.matflip2pat.flipread.multi.bed originalpatreads.intersect.$3.patflip2mat.flipread.multi.bed originalmatpatreads.multi.ids src  ;  make -f $4/PIPELINE.mk ;  echo \"folder=\\\"$(pwd)/\\\"; setwd(folder)\" | cat - ~/jmtools/allele_readdepth_table_beta\&binomial_distribution_gradient.R > allele_readdepth_table_beta\&binomial_distribution_gradient.R  ;  alleleCounts2betabinomFormat.sh $1 $7 ; R CMD BATCH allele_readdepth_table_beta\&binomial_distribution_gradient.R  ; echo \"folder=\\\"$(pwd)/\\\"; setwd(folder)\" | cat - ~/jmtools/alleleseq-betabinomial.R > alleleseq-betabinomial.R ; R CMD BATCH alleleseq-betabinomial.R  "
+
+	sed 's/ ; /\n\n/g' bsub-script-rdy-$2-$1-fastqfilter-thunder.sh > bsub-script-rdy-$2-$1-fastqfilter-thunder.sh_
+	mv bsub-script-rdy-$2-$1-fastqfilter-thunder.sh_  bsub-script-rdy-$2-$1-fastqfilter-thunder.sh
+
+	cd ..
+fi 

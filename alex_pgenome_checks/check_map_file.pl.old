@@ -1,0 +1,81 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+
+if (scalar(@ARGV) == 0) {
+    print "The program checks map files for obvious inconsistencies.\n";
+    exit;
+}
+
+foreach my $file (@ARGV) {
+    if (!open(FILE,$file)) {
+	print STDERR "Can't open file '",$file,"'.\n";
+	next;
+    }
+    my $line = <FILE>;
+    while (substr($line,0,1) eq "#") { $line = <FILE>; }
+    my @prev  = split(/\s+/,$line);
+    my @block = split(/\s+/,$line);
+    my $n = scalar(@prev);
+    while ($line = <FILE>) {
+	if (substr($line,0,1) eq "#") { next; }
+	my @curr = split(/\s+/,$line);
+	if (hasDeletion(\@curr)) { # Current line has deletion
+	    if (hasDeletion(\@prev)) { # Previous line has deletion
+		for (my $i = 0;$i < 3;$i++) {
+		    if ($curr[$i] > 0 && $prev[$i] > 0 &&
+			$curr[$i] - $prev[$i] != 1) {
+			print $file,": inconsistency around indel:\n";
+			printError($file,\@prev,\@curr);
+		    }
+		}
+	    } else { # Previous line has NO deletion
+		my $delta = -1;
+		for (my $i = 0;$i < 3;$i++) {
+		    if ($curr[$i] < 0 || $prev[$i] < 0) { next; }
+		    my $d = $curr[$i] - $prev[$i];
+		    if ($delta > 0 && $d != $d) {
+			print $file,": inconsistency around indel:\n";
+			printError(\@prev,\@curr);
+		    } else { $delta = $d; }
+		}
+	    }
+	} else { # Current line has NO deletion
+	    if (hasDeletion(\@prev)) { # Previous line has deletion
+		for (my $i = 0;$i < 3;$i++) {
+		    if ($curr[$i] > 0 && $prev[$i] > 0 &&
+			$curr[$i] - $prev[$i] != 1) {
+			print $file,": inconsistency around indel:\n";
+			printError($file,\@prev,\@curr);
+		    }
+		}
+	    } else { # Previous line has NO deletion
+		print $file,": inconsistency in blocks:\n";
+		printError(\@prev,\@curr);
+	    }
+	}
+	@prev = @curr;
+    }
+    close(FILE);
+}
+
+exit;
+
+sub hasDeletion
+{
+    my $arr = shift;
+    for (my $i = 0;$i < 3;$i++) {
+	if ($$arr[$i] == 0) { return 1; }
+    }
+    return 0;
+}
+
+sub printError
+{
+    my ($file,$arr1,$arr2) = @_;
+    for (my $i = 0;$i < 3;$i++) { print $$arr1[$i]," "; }
+    print "\n";
+    for (my $i = 0;$i < 3;$i++) { print $$arr2[$i]," "; }
+    print "\n";
+}

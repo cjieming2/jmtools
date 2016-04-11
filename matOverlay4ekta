@@ -1,0 +1,160 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+matOverlay4ekta
+
+=head1 SYNOPSIS
+
+ matOverlay4ekta -options [input file]
+
+  -h help
+
+  Example:
+     matOverlay4ekta -a output.txt.adj matrix.txt
+
+MAKE SURE THAT BOTH THE INPUT FILES HAVE MATRICES OF THE SAME DIMENSIONS!
+takes in output matrix files from deal4ekta
+
+ Input files:
+ frequency matrix file
+ default filename: matrix.txt
+ > contains a nxn matrix of all the enzymes in the pathway file
+ > the frequency denominator is the total num of samples
+ > in this order upstream>n|s|nshomo|nshetero|pshomo|pshetero|rshomo|rshetero; 'NA' for no such upstream>downstream pair amongst the samples in question
+ 
+ -a adjacency matrix 
+ default filename: output.txt.adj
+ > contains the same nxn matrix for all the enzymes in the pathway file
+ > the first col is the upstream enzyme and a '1' in that row denotes an immediate downstream (adjacent) enzyme represented by the col
+ > can feed both files into MATLAB to obtain frequencies for only those with '1's by doing a scalar multiplication of the matrices
+ 
+ Output file:
+ -o overlay.txt
+ > this script basically takes a binary adjacency matrix and entries in the input matrix which correspond to '0' in the adjmatrix are set to 0.
+ 
+=head1 DESCRIPTION
+
+=cut
+
+## option variables (alow user input) /defaults
+my $help;
+my $ofile = 'overlay.txt';
+my $adjFile = 'output.txt.adj';
+my $ifile = 'matrix.txt';
+
+## initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'o=s'=>\$ofile, 'a=s'=>\$adjFile) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+$ifile = $ARGV[0];
+open (INPUT, "$ifile") || die "Cannot open $ifile: $!";
+open (ADJ, "$adjFile") || die "Cannot open $adjFile: $!";
+
+## output file
+my ($name,$path,$suffix) = fileparse($ifile,'\..*');
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+## variables
+my $adjheaderprocessed = 0;
+my @col2header;
+
+my $ctr = 0;
+my $adjnumcols = 0;
+my $adjnumrows = 0;
+my $rowctr = 0;
+my @drow = 0;
+my @dcol = 0;
+
+## read adj matrix file
+while(<ADJ>)
+{
+	chomp;
+	s/[\ \t]+/\t/g;
+	
+	my @line = split(/\t/,$_);
+	
+	if(!$adjheaderprocessed)
+	{
+		$adjnumcols = @line;
+		
+		for(my $i=1;$i<@line;$i++)
+		{
+			$col2header[$i] = $line[$i];
+		}
+		
+		$adjheaderprocessed = 1;
+		$rowctr++;
+	}
+	else
+	{
+		for (my $i=1;$i<@line;$i++)
+		{
+			if($line[$i] == 1)
+			{
+				$drow[$ctr] = $.;
+				$dcol[$ctr] = $i;
+				$ctr++;
+			}
+		}
+		$rowctr++;
+	}
+	
+} # while loop in data file
+
+## debug
+#print "$ctr\n";
+
+print OUTPUT "Upstream_enzyme\tDownstream_enzyme\t".
+                  "$name>n\t$name>s\t$name>nshomo\t$name>nshetero\t$name>pshomo\t$name>pshetero\t$name>rshomo\t$name>rshetero\n";
+
+## read input file
+while (<INPUT>)
+{
+	chomp;
+	s/[\ \t]+/\t/g;
+	
+	my @line = split(/\t/,$_);
+	
+	for(my $i=0;$i<@drow;$i++)
+	{
+		if($. == $drow[$i])
+		{
+			print OUTPUT "$line[0]";
+			print OUTPUT "\t$col2header[$dcol[$i]]";
+			my @jj = split(/\|/,$line[$dcol[$i]]);
+			
+			foreach my $x (@jj)
+			{
+				print OUTPUT "\t$x";
+			}
+			print OUTPUT "\n";
+		}
+		else
+		{
+			next;
+		}
+	}
+}
+
+close (INPUT);
+close (OUTPUT);
+close (ADJ);

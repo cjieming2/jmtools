@@ -1,0 +1,191 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+privaseqUniq
+
+=head1 SYNOPSIS
+
+  privaseq2impute [options] -m <.beddat>
+
+  -h help
+  
+  <.beddat>
+  - combines BED and DAT file from Privaseq
+  - contains SNP positions (1st 6 col are from BED file)
+  - note that this script assumes that there is 'chr' in the BED file chr positions
+  - 4th col = ID (snp_10_23123 or rsid)
+  - 5th col = ref
+  - 6th col = alt
+  - 7th col onwards are information on dat file
+    a matrix with a pair of genotypes separated by tabs; for each pair, first genotype is predicted and the second is actual (from 1KG)
+    genotypes are 0,1,2 and -1 is missing
+    rows as SNPs and cols as samples
+  
+  this script makes sure there are no redundancies in the entries
+  - redundant entries are merged by row (SNP and genotypes)
+  - if SNP is redundant but genotypes are not, on a per individual basis, 
+    priorities are given in this order
+    (1) consensus non-missing data is chosen over consensus missing data 
+    (2) if there is a tie in freq, 0-1-2 in this order.
+  
+  OUTPUT:
+  sorted and unique beddat file
+  
+  Example:
+     privaseqUniq pred.beddat
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $bedfile = '';
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+##### input file
+my $datfile = $ARGV[0];
+open (INPUT, $datfile) || die "Cannot open $datfile: $!";
+
+## variables
+my $samplectr = 0;
+my %SNP;
+my %REDUNSNP;
+my $numcolinbed = 6;
+
+## merge totally redundant entries
+while (<INPUT>)
+{
+	$samplectr = s/\t/\t/g + 1 - $numcolinbed; # number of cols - first 6 for BED
+	chomp $_;
+	my @fields = split("\t", $_, ($numcolinbed+1));
+	chomp @fields;
+	
+	my $chr  = $fields[0];
+	my $pos  = $fields[2];
+	my $rsid = $fields[3];
+	my $ref  = $fields[4];
+	my $alt  = $fields[5];
+	my $sid  = $chr.'#'.$pos.'#'.$rsid.'#'.$ref.'#'.$alt;
+	
+	if(!exists($SNP{$sid}))
+	{
+		$SNP{$sid}{$fields[($numcolinbed)]} = 1;
+	}
+	else # redundant entry
+	{
+		$SNP{$sid}{$fields[($numcolinbed)]}++;
+	}
+}
+
+## each SNP, count genotype for each indiv 
+my %GT;
+
+for my $snp (keys %SNP)
+{
+	my @fields2 = split("#", $snp);
+	chomp @fields2;
+	
+	my $chr = $fields2[0];
+	my $pos = $fields2[1];
+	my $iid = $fields2[2];
+	my $ref = $fields2[3];
+	my $alt = $fields2[4];
+	
+	my $iden = $chr.'#'.$pos.'#'.$iid.'#'.$ref.'#'.$alt;
+	
+	for my $genos (keys %{ $SNP{$snp} })
+	{
+		my @g = split("\t",$genos);
+		
+		# loop indiv=i
+		for(my $i=0;$i<@g;$i++)
+		{
+			if(!exists($GT{$iden}{$i}{$g[$i]}))
+			{
+				$GT{$iden}{$i}{$g[$i]} = 1;
+			}
+			else
+			{
+				$GT{$iden}{$i}{$g[$i]}++;
+				#print "snp$iden|indiv$i|$g[$i]|counts$GT{$iden}{$i}{$g[$i]}\n"; # debug
+			}
+		}
+	}
+} 
+
+## choose consensus and print
+my $conGT = "-1 -1";
+my $conNum = 0;
+
+for my $snv (sort keys %GT)
+{
+	my @o = split("#",$snv);
+	my $start = $o[1] - 1;
+	print "$o[0]\t$start\t$o[1]\t$o[2]\t$o[3]\t$o[4]";
+	
+	for my $indiv (sort {$a <=> $b} keys %{ $GT{$snv} } )
+	{
+		$conGT = "-1 -1";
+		$conNum = 0;
+		
+		for my $genotype (sort keys %{ $GT{$snv}{$indiv} } )
+		{
+			if($conNum <= $GT{$snv}{$indiv}{$genotype})
+			{
+				$conNum = $GT{$snv}{$indiv}{$genotype};
+				$conGT = $genotype;
+				#print "\n$snv|indiv$indiv|$conNum|$conGT|currNum$GT{$snv}{$indiv}{$genotype}|currGT$genotype\n";
+			}
+		}
+		
+		# if -1, take next highest
+		my @gg = split(" ",$conGT);
+		if($gg[0] == -1)
+		{
+			my $size = keys %{ $GT{$snv}{$indiv} };
+			if($size > 1)
+			{
+				$GT{$snv}{$indiv}{$conGT} = -1;
+				$conGT = "-1 -1";
+				$conNum = 0;
+				for my $genotype (sort keys %{ $GT{$snv}{$indiv} } )
+				{
+					if($conNum <= $GT{$snv}{$indiv}{$genotype})
+					{
+						$conNum = $GT{$snv}{$indiv}{$genotype};
+						$conGT = $genotype;
+						#print "\n$snv|indiv$indiv|$conNum|$conGT|currNum$GT{$snv}{$indiv}{$genotype}|currGT$genotype\n";
+					}
+				}
+			}
+		}
+		
+		print "\t$conGT";
+	}
+	print "\n";
+}
+
+close(INPUT)

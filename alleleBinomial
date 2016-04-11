@@ -1,0 +1,323 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+use Math::Complex;
+use Math::Trig;
+
+=head1 NAME
+
+alleleBinomial
+
+=head1 SYNOPSIS
+
+ alleleBinomial [options] <input>
+  
+  -h help
+  -d 'binomial' or 'betabinomial'; default is 'binomial'
+  -B beta parameter in betabinomial, alpha is fixed at 0.5 for now; default is 0.05
+
+  <input?
+  -must contain col - 'total'
+  -for total number of reads
+  
+  this script takes in a tab-delimited file with header 'total' (n) and outputs the expected (beta)binomial distribution
+  based on the total count and weight it by the number of rows with that total count. Each row in the output is the fraction
+  of the k value wrt to the total count (allelic ratio).
+
+  For Binomial distribution,
+  -Bin(n,p) where p=0.5 (fixed) 
+  -pdf = (n k) p**k(1-p)**(n-k)
+
+  For Betabinomial distribution,
+  -Beta(n,a,b) where a=0.5 (fixed)
+  -the beta function B(a,b) = ((a-1)!*(b-1)) / (a+b-1) can be approx with the Stirling approx to 
+   B(a,b) ~ sqrt(2*PI) * (a**(a-0.5) * b**(b-0.5))/((a+b)**(a+b-0.5))
+ 
+  Approximations:
+  -factorials are approximated using the Stirling approx 
+  n < 100, binomial and Stirling approx for factorial calc
+  n > 100, normal approx for binomial N(np,np(1-p)
+  
+  ln(n!)= nln(n) -n + O(ln(n))
+  => n! ~ sqrt(2.pi.n).(n/e)^n
+
+  INPUT:
+  -a tab-delimited file with a column header 'total'
+  
+  OUTPUT:
+  -produced a sorted file of expected (beta)binomial distribution of the allelic ratio weighted by the actual frequency
+   of each n (total count)
+
+  Example:
+     alleleBinomial -B 0.1 -d 'betabinomial' counts.min6.allelicRatio.mod.auto.txt > counts.min6.allelicRatio.mod.auto.bin
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $distrib = 'binomial';
+my $B = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'd=s'=>\$distrib, 'B=f'=>$B) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## variables
+my $headerProcessed = 0;
+my %header2col;
+my %counts;
+my %hashBin;
+my $p = 0.5;
+
+## process input
+while (<INPUT>)
+{
+	chomp;
+	s/\r?\n?$//;
+	
+	my @fields = split(/\t/, $_);
+	
+	if(!$headerProcessed)
+	{
+		LABEL:for my $header ('total')
+		{
+			for (my $i=0;$i<@fields;$i++)
+			{
+				if($header eq $fields[$i])
+				{
+					$header2col{$header} = $i;
+					next LABEL;
+				}
+			}
+			
+			die("$header not found!: $!");
+		}
+		
+
+		$headerProcessed = 1;
+	}
+	else ## header processed
+	{
+		my $n = $fields[$header2col{'total'}];
+		
+		# frequency table for n
+		if(!exists($counts{$n}))
+		{
+			$counts{$n} = 1;
+			my $tempRef;
+			
+			## binomial or betabinomial
+			if($distrib eq 'binomial')
+			{
+				$tempRef = binomial($n,$p);
+			}
+			else
+			{
+				$tempRef = betabinomial($n,$p,$B)
+			}
+			
+			# merge hash
+			for my $ttotal (keys %$tempRef)
+			{
+				for my $kkey (keys %{ $tempRef->{$ttotal} })
+				{
+					if(!exists($hashBin{$ttotal}{$kkey}))
+					{
+						$hashBin{$ttotal}{$kkey} = $tempRef->{$ttotal}->{$kkey};
+					}
+					else
+					{
+						$hashBin{$ttotal}{$kkey} = $hashBin{$ttotal}{$kkey} + $tempRef->{$ttotal}->{$kkey};
+					}
+				}
+			}
+			
+		}
+		else
+		{
+			$counts{$n}++;
+		}
+	}
+	
+}
+
+## store in new hash
+my %newHash;
+
+print "allelicRatio\twBinDist\n";
+for my $totall (sort {$a <=> $b} keys %hashBin)
+{
+	for my $keyy (sort {$a <=> $b} keys % { $hashBin{$totall} } )
+	{
+		my $val = 0;
+		
+		if(!exists($counts{$totall})) ## counts=0
+		{
+			$val = 0;
+		}
+		else
+		{
+			$val = $hashBin{$totall}{$keyy} * $counts{$totall};
+		}
+		
+#		print "$totall\t$keyy\t$val\t$counts{$totall}\n"; ## debug
+
+		# store in new hash with only weighted pdf and allelicRatio
+		if(!exists($newHash{$keyy}))
+		{
+			$newHash{$keyy} = $val;
+		}
+		else
+		{
+			$newHash{$keyy} = $newHash{$keyy} + $val;
+		}
+	}
+}
+
+## print
+for my $keyyy (sort {$a <=> $b} keys %newHash)
+{
+	print "$keyyy\t$newHash{$keyyy}\n";
+}
+
+
+close(INPUT);
+
+
+######################################################################
+### calc pdf of betabinomial for 1:n for p
+### n < 100, betabinomial and Stirling approx (n>10) for factorial calc
+### n > 100, normal approx for betabinomial
+sub betabinomial
+{
+        my ($n, $p, $b) = (@_);
+        my %pdf;
+        use constant PI => 4*atan2 (1,1);
+
+        for (my $k=0;$k<=$n;$k++)
+        {
+                my $key = $k/$n;
+
+                # betabinomial and Stirling approx for factorial calc
+                $pdf{$n}{$key} = nchoosek($n,$k) * beta($k+$p, $n-$k+$b) / beta($p,$b);
+		
+		## debug
+		my $jm1 = nchoosek($n,$k);
+		my $jm2 = beta($p,$b);
+		my $jm3 = factorial($p-1);
+		my $jm4 = factorial($b-1);
+		print "nchoosek=$jm1|a=$p|b=$b|$jm2|(0.5-1)!=$jm3|(0-1)!=$jm4\n";
+	}
+	return \%pdf;
+}
+
+######################################################################
+#### calc beta function
+sub beta
+{
+        my ($a,$b) = (@_);
+	return (factorial($a-1)*factorial($b-1)) / factorial($a+$b-1);
+}
+
+
+######################################################################
+### calc n choose k
+sub nchoosek
+{
+	my ($n,$k) = (@_);
+	return (factorial($n) / (factorial($k) * factorial($n-$k)));
+}
+
+
+######################################################################
+## calc pdf of binomial for 1:n for p
+## n < 100, binomial and Stirling approx (n>10) for factorial calc
+## n > 100, normal approx for binomial
+
+sub binomial
+{
+	my ($n, $p) = (@_);
+	my %pdf;
+	use constant PI => 4*atan2 (1,1);
+	
+	for (my $k=0;$k<=$n;$k++)
+	{
+		my $key = $k/$n;
+		
+		if($n < 100) # binomial and Stirling approx for factorial calc
+		{
+			$pdf{$n}{$key} = (factorial($n) / (factorial($k) * factorial($n-$k))) *	($p**$k) * ((1-$p)**($n-$k));
+			
+			## debug
+#			my $on = factorial($n);
+#			my $ok = factorial($k);
+#			my $pk = $p**$k;
+#			my $pnk = (1-$p)**($n-$k);
+#			print "n=$n|k=$k|p=$p|k\/n=$key|pdf=$pdf{$n}{$key}|n!=$on|k!=$ok|p\^k=$pk|p\^(n-k)=$pnk\n"; 
+		}
+		else # if n>100, use normal approx N(np,np(1-p)
+		{
+			$pdf{$n}{$key} = (1/sqrt(2*PI*$n*$p*(1-$p))) * exp(-(($k-($n*$p))**2/(2*$n*$p*(1-$p))));
+			
+#			## debug
+#			my $np = $n*$p;
+#			my $npi = $n*$p*(1-$p);
+#			print "n=$n|k=$k|p=$p|k\/n=$key|pdf=$pdf{$n}{$key}|np=$np|np(1-p)=$npi\n"; 
+		}
+	}
+			
+	return \%pdf;
+	
+}
+
+
+sub factorial
+{
+	my $n = shift;
+	my $nn = 1;
+	use constant PI => 4*atan2 (1,1);
+  	use constant e => exp(1);
+  
+  	if($n == 0)
+	{
+		$nn = 1;
+	}
+	elsif($n <= 10) 
+	{
+		for(my $i=1;$i<=$n;$i++)
+		{
+			$nn = $nn * $i;
+		}
+	}
+	else # if n > 10, use stirling approximation
+	{
+		my $nnn = $n * log ($n) - $n + 0.5 * (log(2*PI*$n));
+		$nn = exp($nnn);		
+	}
+	
+	return $nn;
+}
+
+	

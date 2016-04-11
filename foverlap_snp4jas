@@ -1,0 +1,242 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+foverlap_snp4jas
+
+=head1 SYNOPSIS
+
+ foverlap_snp4jas <subject> <reference>
+
+  -h help
+  -o output filename; default is z-<subject>-<reference>.out
+  <subject>=EXAMPLE affy
+  <reference>=EXAMPLE reference tags (dpets) that you want to find affy in
+  -s <subject> column order in the format: id,chr,start,end (1-based)
+  -g <reference> column in the format: id,chr,start,end (1-based)
+  NOTE THAT: if snp-only, start and end should be the same column
+
+ Please try to reduce your filenames because the output files use both the filenames.
+
+ mandatory file options
+ (1) id
+ (2) chromosome (prepend with "chr" or not, but both files must be consistent)
+ (3) start (make sure that subj and ref positions are in the same format, both 0- or 1-based)
+ (4) end
+ 
+ 	HEADER REQUIRED!
+  example: foverlap_snp4jas snp.list gene-ref.list -s 1,4,5,5 -g 1,5,3,2
+
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $ofilename = 0;
+my $snplistcols;
+my $genelistcols;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help, 'o=s'=>\$ofilename, 's=s'=>\$snplistcols, 'g=s'=>\$genelistcols) || scalar(@ARGV)!=2)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        die "WRONG NUMBER OF ARGUMENTS!";
+    }
+}
+
+# variables
+my $subj=$ARGV[0];
+my $ref=$ARGV[1];
+my($refname, $refpath, $refext) = fileparse($ref, '\..*');
+my($subjname, $subjpath, $subjext) = fileparse($subj, '\..*');
+my $ofile = '';
+my $logfile = '';
+my $snponly = 0;
+
+if($ofilename eq 0)
+{
+	$ofile="z-$subjname-in-$refname-checked.out";
+	$logfile="z-$subjname-in-$refname-checked.log"
+}
+else
+{
+	$ofile = $ofilename;
+	$logfile = "$ofilename.log";
+}
+
+# input files
+open(SUBJ, $subj) || die "Cannot open $subj";
+my @subj=<SUBJ>;
+
+open(REFERENCE, $ref) || die "Cannot open $ref";
+my @ref=<REFERENCE>;
+
+#print "snps-only = $snponly\n";
+
+# output file
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+#print OUTPUT "subj-id\tsubj-chr\tsubj-start\tsubj-end\tref-id\tref-chr\tref-start\tref-end\tsituation\n";
+
+open (LOG, ">$logfile") || die "Cannot open $ofile: $!";
+print LOG "subj file: $subj\n";
+
+## loop variables
+my %header2colsubj;
+my %header2colref;
+my $subjheaderProcessed = 0;
+my $refheaderProcessed = 0;
+my $subjchr = 0;
+my $subjStart = 0;
+my $subjEnd = 0;
+my $subjID = '';
+my %subjline;
+
+my $refchr = 0;
+my $refStart = 0;
+my $refEnd = 0;
+my $refID = '';
+
+my %id2linesubj;
+my %id2lineref;
+
+## in the affy-subject file
+LINE1: foreach my $line1 (@subj)
+{
+	chomp $line1;
+	my @subjPos = split("\t", $line1);
+	chomp @subjPos;
+
+	if(!$subjheaderProcessed)
+	{
+		print OUTPUT join("\t",@subjPos);
+		
+		## finds the columns as input in snplist and prints out in a log file		
+		my @snpcols = split(/,/,$snplistcols);
+		if($#snpcols != 3){die "option -s needs 4 number: id,chr,start,end";}
+		if($snpcols[2] == $snpcols[3]){$snponly = 1;}
+		my $ctr = 0;
+		SEARCH_LABEL_SUBJ: for my $label ('id', 'chromosome', 'start', 'end')
+		{					
+			$header2colsubj{$label} = $snpcols[$ctr] - 1; #input is 1-based
+			$ctr++;
+			print LOG "$label = $subjPos[$header2colsubj{$label}]\n";
+			next SEARCH_LABEL_SUBJ;
+		}
+		
+		$subjheaderProcessed = 1;
+		next LINE1;
+	} ## subj header
+	else
+	{
+		$subjchr = $subjPos[$header2colsubj{'chromosome'}];
+		
+		if($subjchr eq 'Y')		{			$subjchr = 24;		}
+		elsif($subjchr eq 'X')		{			$subjchr = 23;		}
+		else{}
+		
+		$subjStart = $subjPos[$header2colsubj{'start'}];
+		$subjEnd = $subjPos[$header2colsubj{'end'}];
+		
+		if($snponly)
+		{
+			$subjline{$subjchr}{$subjStart} = $line1;
+		}
+		else
+		{
+			#$subjline{$subjStart} =
+		}
+	}
+} ## subject-affy file 
+
+## in the reference file tags
+print LOG "\nref file: $ref\n";
+LINE2: foreach my $line2 (@ref)
+{
+		chomp $line2;
+		my @refPos = split("\t", $line2);
+		chomp @refPos;
+		
+		# this additional if statement is to get around the comparison of the line in the subj file comparing 
+		# with the header of the reference file
+		if((!$refheaderProcessed) || ($refPos[$header2colref{'id'}] eq 'id'))
+		{
+			if(!$refheaderProcessed)
+			{
+				if($snponly)
+				{
+					print OUTPUT "\t".join("\t",@refPos)."\n";
+				}
+				else
+				{
+					print OUTPUT "\t".join("\t",@refPos)."\tsituation\toverlap1\toverlap2\n";
+				}
+				
+				my @refcols = split(/,/,$genelistcols);
+				if($#refcols != 3){die "option -g needs 4 number: id,chr,start,end";}
+				if($refcols[2] == $refcols[3]){die "-g start and end have to be different";}
+				my $ctr = 0;
+				SEARCH_LABEL_REF: for my $label ('id', 'chromosome', 'start', 'end')
+				{	
+					$header2colref{$label} = $refcols[$ctr] - 1;
+					$ctr++;
+					print LOG "$label = $refPos[$header2colref{$label}]\n";
+					next SEARCH_LABEL_REF;					
+				} ## loop header's fields
+			}
+		
+			$refheaderProcessed = 1;
+			next LINE2;
+		}
+		else
+		{
+			$refchr = $refPos[$header2colref{'chromosome'}];
+			
+			if($refchr eq 'Y')		{			$refchr = 24;		}
+			elsif($refchr eq 'X')		{			$refchr = 23;		}
+			else		{			} ## nothing
+		
+			$refStart = $refPos[$header2colref{'start'}];
+			$refEnd = $refPos[$header2colref{'end'}];
+			
+			if($snponly)
+			{
+					for(my $i=$refStart; $i<=$refEnd; $i++)
+					{
+						if(exists($subjline{$refchr}{$i}))
+						{
+							print OUTPUT "$subjline{$refchr}{$i}\t$line2\n";
+						}
+					}
+			}
+			else
+			{
+			}
+			
+		}
+	
+		#print "|$subjchr|$subjStart|$subjEnd|$refchr|$refStart|$refEnd|\n"; ##debug	
+		
+} ## ref dpets file 
+
+
+
+
+close(SUBJ);
+close(REFERENCE);
+close(OUTPUT);
+close(LOG);
