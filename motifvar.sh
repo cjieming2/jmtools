@@ -1,33 +1,44 @@
 #!/bin/bash
-### motifvar.sh <flag> <smart domain name> <SMART fasta file>
-### e.g. motifvar.sh 0 TPR /path/HUMAN_TPR.fa > motifvar-160424.log
-## note for paths no end '/' pls
-## flag 0 runs everything except flag "protPos2gPos" (SmartAApos2genomePos), which converts protein positions in SMART domains to genomic positions using Ensembl IDs of proteins with SMART domains
 
-##===============================
-##== FLAG CODE ==================
-## "protPos2gPos": run only the module 'protPos2gPos'
-## 0:run everything from 1-8
-## 1:fasta2prot; convert fasta files from SMART to tab-delimited files, using the fasta headers
-##-1: if $1 -eq -1, clean up everything; creates a folder 'trash'
-## 	 e.g. motifvar.sh -1
+if [ "$#" -ne 4 ] ; then
+	
+	echo "==============================="
+	echo "== USAGE ======================"
+	echo "==============================="
+	echo "motifvar.sh <flag> <smart domain name> <SMART fasta file> <Ensembl version>" 
+	echo "e.g. motifvar.sh 0 TPR /path/HUMAN_TPR.fa 73 > motifvar-160424.log"
+  echo "--note for paths no end '/' pls"
+	echo "--flag 0 runs everything except flag \"protPos2gPos\"" 
+	echo "(SmartAApos2genomePos), which converts protein positions in SMART domains to genomic positions using Ensembl IDs of proteins with SMART domains"
+  echo ""
+  echo "==============================="
+  echo "== FLAG CODE =================="
+  echo "==============================="
+  echo "\"protPos2gPos\": run only the module 'protPos2gPos'"
+  echo "0:run everything from 1-8"
+  echo "1:fasta2prot; convert fasta files from SMART to tab-delimited files, using the fasta headers"
+  echo "-1: if $1 -eq -1, clean up everything; creates a folder 'trash'"
+  echo "e.g. motifvar.sh -1"
+  
+	echo "==============================="
+	echo "== 'protPos2gPos' module ======"
+	echo "==============================="
+	echo "arg1: protPos2gPos"
+	echo "arg2: ensembl2coding file (adapted from Ensembl BioMart)"
+	echo "      --file header: EnsemblGeneID   EnsemblTranscriptID"
+	echo "        EnsemblProteinID    EnsemblExonID  chr      strand"  echo "genomicCodingStart (1-based)      genomicCodingEnd"
+	echo "arg3: SMART domain file with EnsemblProtID (converted from"
+	echo "      motifVar_smartAApos2tsv after obtaining SMART domain info from" 
+	echo "Ensembl using perl_api_smart_domains_suganthi.pl)"
+	echo "      --file header: chr     smart   protaastart     protaaend"
+	echo "        EnsemblProtID"
+	echo "arg4: SMART domain file directly from SMART database"
+	echo "      --file header: DOMAIN  ACC     DEFINITION      DESCRIPTION"
+	echo "arg5: ensembl version"
+	echo "e.g. motifvar.sh protPos2gPos /ens/path/ensembl2coding_ens.noErr.txt /ens/path/allchr.ens73.noErr.tsv /smart/path/smart_domains_42_131025.txt 73"
 
-
-
-##===============================
-##== 'protPos2gPos' module ======
-##===============================
-## arg1: protPos2gPos
-## arg2: ensembl2coding file (adapted from Ensembl BioMart)
-##       --file header: EnsemblGeneID   EnsemblTranscriptID     EnsemblProteinID    EnsemblExonID  chr      strand  genomicCodingStart (1-based)      genomicCodingEnd
-## arg3: SMART domain file with EnsemblProtID (converted from motifVar_smartAApos2tsv after obtaining SMART domain info from Ensembl using perl_api_smart_domains_suganthi.pl)
-##       --file header: chr     smart   protaastart     protaaend       EnsemblProtID
-## arg4: SMART domain file directly from SMART database
-##       --file header: DOMAIN  ACC     DEFINITION      DESCRIPTION
-## arg5: ensembl version
-## e.g. motifvar.sh protPos2gPos /ens/path/ensembl2coding_ens.noErr.txt /ens/path/allchr.ens73.noErr.tsv /smart/path/smart_domains_42_131025.txt 73
-
-
+	exit 1
+fi
 
 
 #######################################################
@@ -135,6 +146,11 @@ if [[ ${FLAG} -eq 1 || ${FLAG} -eq 0 ]] ; then
 	motifVar_fastaSmart2tsv4lyn ${SMARTFASTA_PATH} -o ${DOMAIN}.prot.indiv -i 1
 	
 	echo "Converting SMART fasta to prot and prot.indiv... Done." >> 1-fasta2prot-${DOMAIN}.log
+	
+	## obtain most common motif length
+	distinct -kc$(head -2 ${DOMAIN}.prot.indiv | ftranspose | grep -n '' | sed 's/:/\t/g' | grep length | cut -f1) ${DOMAIN}.prot.indiv | sort -nrk2 | head -1 | cut -f2 > ${DOMAIN}_mostCommonMotifLen.txt
+	
+	echo "Obtaining most common motif length... Done." >> 1-fasta2prot-${DOMAIN}.log
 	date >> 1-fasta2prot-${DOMAIN}.log
 	
 	cd ..
