@@ -1,7 +1,6 @@
 #!/bin/bash
 
-if [ "$#" -ne 4 ] ; then
-	
+if [ "$#" -ne 4 ] && [ "$1" -ne -1 ]; then
 	echo "==============================="
 	echo "== USAGE ======================"
 	echo "==============================="
@@ -35,7 +34,7 @@ if [ "$#" -ne 4 ] ; then
 	echo "arg4: SMART domain file directly from SMART database"
 	echo "      --file header: DOMAIN  ACC     DEFINITION      DESCRIPTION"
 	echo "arg5: ensembl version"
-	echo "e.g. motifvar.sh protPos2gPos /ens/path/ensembl2coding_ens.noErr.txt /ens/path/allchr.ens73.noErr.tsv /smart/path/smart_domains_42_131025.txt 73"
+	echo "e.g. motifvar.sh protPos2gPos /ens/path/ensembl2coding_ens.noErr.txt /ens/path/allchr.ens73.noErr.tsv /smart/path/smart_domains_1158_all_131025.txt 73"
 
 	exit 1
 fi
@@ -54,8 +53,8 @@ fi
 if [[ $1 -eq -1 ]] ; then
 
 	mkdir trash
-	mv * trash
-	mv *.log trash
+	mv motifVar_protPos2gPos 1-fasta2prot-* trash
+	mv *.err *.log trash
 	
 	exit 0
 
@@ -67,8 +66,8 @@ fi
 if [[ $1 == "protPos2gPos" ]] ; then
 	## setting up
 	## make directories, go in directory, set up links
-	mkdir protPos2gPos
-	cd protPos2gPos
+	mkdir motifVar_protPos2gPos
+	cd motifVar_protPos2gPos
 	
 	ENSEMBLFILE=$2
 	DOMAINENSFILE=$3
@@ -80,21 +79,21 @@ if [[ $1 == "protPos2gPos" ]] ; then
 	ln -s ${DOMAINFILE}
 
 	## start log print
-	echo "#######################" > protPos2gPos.log
-	echo "## protPos2gPos #######" >> protPos2gPos.log
-	echo "#######################" >> protPos2gPos.log
+	echo "#######################" > motifVar_protPos2gPos.log
+	echo "## protPos2gPos #######" >> motifVar_protPos2gPos.log
+	echo "#######################" >> motifVar_protPos2gPos.log
 	
-	date >> protPos2gPos.log
+	date >> motifVar_protPos2gPos.log
 	
 	## convert protein positions of SMART domains to genomic positions using Ensembl
 	motifVar_smartAApos2genomePos -e ${ENSEMBLFILE} ${DOMAINENSFILE} | awk 'NR == 1; NR > 1 {if($2>$3){print $1"\t"$3"\t"$2"\t"$4"\t"$5"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10}else{print $0}}' > temp.txt
 	
 	## integrate SMART domain information
-	fselect a.+,b.DOMAIN,b.DEFINITION from temp.txt, $DOMAINFILE where a.smart=b.ACC | sed 's/ /_/g' > smartDomain2gPos.ens${ENS_VER}.alldomainfeatures.txt
+	fselect a.+,b.DOMAIN,b.DEFINITION from temp.txt, $DOMAINFILE where a.smart=b.ACC | sed 's/ /_/g' > motifVar_protPos2gPos.ens${ENS_VER}.smartdomains.txt
 	
-	echo "Converting protein positions in SMART domains to genomic positions using EnsemblProtIDs and SMART domains... Done." >> protPos2gPos.log
-	echo "NOTE: post-processing on the smartDomain2gPos output file might be needed - e.g. ID errors, missing data, linesWprobs, CDS not fully annotated etc. Check Word documentation." >> protPos2gPos.log
-	date >> protPos2gPos.log
+	echo "Converting protein positions in SMART domains to genomic positions using EnsemblProtIDs and SMART domains... Done." >> motifVar_protPos2gPos.log
+	echo "Program ran successfully but pls note: post-processing on the smartDomain2gPos output file might be needed - e.g. ID errors, missing data, linesWprobs, CDS not fully annotated etc. This script doesn't check for these. Check Word documentation for details." >> motifVar_protPos2gPos.log
+	date >> motifVar_protPos2gPos.log
 	
 	rm temp.txt
 	
