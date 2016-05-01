@@ -1,24 +1,30 @@
 #!/bin/bash
 
-if [ "$#" -ne 4 ] && [ "$1" -ne -1 ]; then
+if [[ "$#" -ne 5 && "$1" -ne -1 ]] ; then
 	echo "==============================="
 	echo "== USAGE ======================"
 	echo "==============================="
-	echo "motifvar.sh <flag> <smart domain name> <SMART fasta file> <Ensembl version>" 
-	echo "e.g. motifvar.sh 0 TPR /path/HUMAN_TPR.fa 73 > motifvar-160424.log"
+	echo "motifvar.sh <flag> <smart domain name> <SMART fasta file> <Ensembl version> <Ensembl fasta file>" 
+	echo "e.g. motifvar.sh 12 TPR /path/HUMAN_TPR.fa 73 - > motifvar-160424.log"
   echo "--note for paths no end '/' pls"
-	echo "--flag 0 runs everything except flag \"protPos2gPos\"" 
-	echo "(SmartAApos2genomePos), which converts protein positions in SMART domains to genomic positions using Ensembl IDs of proteins with SMART domains"
-  echo ""
+  echo "this script needs 5 arguments"
+  echo "--if a file is module-specific, you can use '-' to replace"
+  echo "arg1:flag (refer to flag code) "
+  echo "arg2:domain name from SMART database, e.g. TPR"
+  echo "arg3:full path of fasta file from SMART database, with header >smart|TPR-ensembl|ENSP00000245105|ENSP00000245105/560-593 no description [Homo sapiens]"
+  echo "arg4:Ensembl version e.g. 73"
+  echo "arg5:module 3; full path of fasta file from Ensembl BioMart, with header >19|ENSG00000104969|ENSP00000221566"
+  echo -e "\n\n"
   echo "==============================="
   echo "== FLAG CODE =================="
   echo "==============================="
-  echo "\"protPos2gPos\": run only the module 'protPos2gPos'"
-  echo "0:run everything from 1-8"
+  echo "\"protPos2gPos\": run only the module 'protPos2gPos' (SmartAApos2genomePos), which converts protein positions in SMART domains to genomic positions using Ensembl IDs of proteins with SMART domains"
   echo "1:fasta2prot; convert fasta files from SMART to tab-delimited files, using the fasta headers"
+  echo "2:domain2info; requires \"protPos2gPos\", obtain domain info from protPos2gPos info master file"
+  echo "a combination of modules:e.g. 12, will run modules 1 and 2; 123, runs modules 1,2 and 3"
   echo "-1: if $1 -eq -1, clean up everything; creates a folder 'trash'"
   echo "e.g. motifvar.sh -1"
-  
+  echo -e "\n\n"
 	echo "==============================="
 	echo "== 'protPos2gPos' module ======"
 	echo "==============================="
@@ -53,7 +59,7 @@ fi
 if [[ $1 -eq -1 ]] ; then
 
 	mkdir trash
-	mv motifVar_protPos2gPos 1-fasta2prot-* trash
+	mv motifVar_protPos2gPos [12]-* trash
 	mv *.err *.log trash
 	
 	exit 0
@@ -66,8 +72,8 @@ fi
 if [[ $1 == "protPos2gPos" ]] ; then
 	## setting up
 	## make directories, go in directory, set up links
-	mkdir motifVar_protPos2gPos
-	cd motifVar_protPos2gPos
+	mkdir 0-motifVar_protPos2gPos
+	cd 0-motifVar_protPos2gPos
 	
 	ENSEMBLFILE=$2
 	DOMAINENSFILE=$3
@@ -79,21 +85,26 @@ if [[ $1 == "protPos2gPos" ]] ; then
 	ln -s ${DOMAINFILE}
 
 	## start log print
-	echo "#######################" > motifVar_protPos2gPos.log
-	echo "## protPos2gPos #######" >> motifVar_protPos2gPos.log
-	echo "#######################" >> motifVar_protPos2gPos.log
+	echo "#######################" > 0-motifVar_protPos2gPos.log
+	echo "## protPos2gPos #######" >> 0-motifVar_protPos2gPos.log
+	echo "#######################" >> 0-motifVar_protPos2gPos.log
 	
-	date >> motifVar_protPos2gPos.log
+	date >> 0-motifVar_protPos2gPos.log
 	
 	## convert protein positions of SMART domains to genomic positions using Ensembl
 	motifVar_smartAApos2genomePos -e ${ENSEMBLFILE} ${DOMAINENSFILE} | awk 'NR == 1; NR > 1 {if($2>$3){print $1"\t"$3"\t"$2"\t"$4"\t"$5"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10}else{print $0}}' > temp.txt
 	
 	## integrate SMART domain information
-	fselect a.+,b.DOMAIN,b.DEFINITION from temp.txt, $DOMAINFILE where a.smart=b.ACC | sed 's/ /_/g' > motifVar_protPos2gPos.ens${ENS_VER}.smartdomains.txt
+	fselect a.+,b.DOMAIN,b.DEFINITION from temp.txt, $DOMAINFILE where a.smart=b.ACC | sed 's/ /_/g' | sed -e 's/\t\t/\tNA\t/g' -e 's/\t\n/\tNA\n/g' > motifVar_protPos2gPos.ens${ENS_VER}.smartdomains.txt
 	
-	echo "Converting protein positions in SMART domains to genomic positions using EnsemblProtIDs and SMART domains... Done." >> motifVar_protPos2gPos.log
-	echo "Program ran successfully but pls note: post-processing on the smartDomain2gPos output file might be needed - e.g. ID errors, missing data, linesWprobs, CDS not fully annotated etc. This script doesn't check for these. Check Word documentation for details." >> motifVar_protPos2gPos.log
-	date >> motifVar_protPos2gPos.log
+	## housekeeping
+	echo "Converting protein positions in SMART domains to genomic positions using EnsemblProtIDs and SMART domains... Done." >> 0-motifVar_protPos2gPos.log
+	echo -e "motifVar_protPos2gPos.ens${ENS_VER}.smartdomains.txt created. \n\n"
+	echo "**NOTE: Program ran successfully but pls note: post-processing on the smartDomain2gPos output file might be needed - e.g. ID errors, missing data, linesWprobs, CDS not fully annotated etc. This script doesn't check for these. Check Word documentation for details." >> 0-motifVar_protPos2gPos.log
+	date >> 0-motifVar_protPos2gPos.log
+	
+	mkdir src
+	mv ${ENSEMBLFILE} ${DOMAINENSFILE} ${DOMAINFILE} src
 	
 	rm temp.txt
 	
@@ -110,6 +121,7 @@ FLAG=$1
 DOMAIN=$2  
 SMARTFASTA_PATH=$3
 ENS_VER=$4
+ENSEMFASTA_PATH=$5
 
 
 #############################
@@ -119,137 +131,125 @@ echo "FLAG               =${FLAG}"
 echo "DOMAIN             =${DOMAIN}"
 echo "SMARTFASTA_PATH    =${SMARTFASTA_PATH}"  
 echo "ENS_VER            =${ENS_VER}"
+echo "ENSEMFASTA_PATH    =${ENSEMFASTA_PATH}"
 
 
 #############################################################
 ## 1 fasta2prot
 #############################################################
-if [[ ${FLAG} -eq 1 || ${FLAG} -eq 0 ]] ; then
+if [[ ${FLAG} =~ 1 ]] ; then
 	## setting up
 	## make directories, go in directory, set up links
 	mkdir 1-fasta2prot-${DOMAIN}
 	cd 1-fasta2prot-${DOMAIN}
-	ln -s ${SMARTFASTA_PATH} ${DOMAIN}.fasta
+	
+	IFILE="${DOMAIN}.fasta"
+	OFILE_prot="${DOMAIN}.prot"
+	OFILE_indi="${DOMAIN}.prot.indiv"
+	LFILE="1-fasta2prot-${DOMAIN}.log"
+	SFILE="${DOMAIN}_mostCommonMotifLen.txt"
+	ln -s ${SMARTFASTA_PATH} ${IFILE}
 	
 	## start log print
-	echo "######################" > 1-fasta2prot-${DOMAIN}.log
-	echo "## 1-fasta2prot #######" >> 1-fasta2prot-${DOMAIN}.log
-	echo "######################" >> 1-fasta2prot-${DOMAIN}.log
+	echo "######################" > ${LFILE}
+	echo "## 1-fasta2prot ######" >> ${LFILE}
+	echo "######################" >> ${LFILE}
 	
-	date >> 1-fasta2prot-${DOMAIN}.log
+	date >> ${LFILE}
 	
 	## converts smart fasta to tab-delimited prot grouped by proteins
-	motifVar_fastaSmart2tsv4lyn ${SMARTFASTA_PATH} -o ${DOMAIN}.prot
+	motifVar_fastaSmart2tsv4lyn ${IFILE} -o ${OFILE_prot}
 
 	## converts smart fasta to tab-delimited prot split by individual motif
-	motifVar_fastaSmart2tsv4lyn ${SMARTFASTA_PATH} -o ${DOMAIN}.prot.indiv -i 1
+	motifVar_fastaSmart2tsv4lyn ${IFILE} -o ${OFILE_indi} -i 1
 	
-	echo "Converting SMART fasta to prot and prot.indiv... Done." >> 1-fasta2prot-${DOMAIN}.log
+	echo "Converted SMART fasta to prot and prot.indiv... Done." >> ${LFILE}
 	
 	## obtain most common motif length
-	distinct -kc$(head -2 ${DOMAIN}.prot.indiv | ftranspose | grep -n '' | sed 's/:/\t/g' | grep length | cut -f1) ${DOMAIN}.prot.indiv | sort -nrk2 | head -1 | cut -f2 > ${DOMAIN}_mostCommonMotifLen.txt
+	distinct -kc$(head -2 ${OFILE_indi} | ftranspose | grep -n '' | sed 's/:/\t/g' | grep length | cut -f1) ${OFILE_indi} | sort -nrk2 | head -1 | cut -f1 > ${SFILE}
 	
-	echo "Obtaining most common motif length... Done." >> 1-fasta2prot-${DOMAIN}.log
-	date >> 1-fasta2prot-${DOMAIN}.log
+	echo -e "\n\n" >> ${LFILE}
+	distinct -kc$(head -2 ${OFILE_indi} | ftranspose | grep -n '' | sed 's/:/\t/g' | grep length | cut -f1) ${OFILE_indi} | sort -nrk2 >> ${LFILE}
+	
+	echo "Obtained most common motif length... Done." >> ${LFILE}
+	
+	## housekeeping
+	date >> ${LFILE}
 	
 	cd ..
 fi
 
 ##############################################################
-### 2 map to ref
+### 2 domain info (domain2info)
 ##############################################################
-#if [[ ${FLAG} -eq 2 || ${FLAG} -eq 0 ]] ; then
-#	## setting up
-#	## make directories, go in directory, set up links
-#	mkdir 2-map.back.ref-${NAME}
-#	cd 2-map.back.ref-${NAME}
-#	
-#	## start log print
-#	echo "#######################" > 2-map.back.ref-${NAME}.log
-#  echo "## 2-map to ref #######" >> 2-map.back.ref-${NAME}.log
-#  echo "#######################" >> 2-map.back.ref-${NAME}.log
-#  
-#  date >> 2-map.back.ref-${NAME}.log
-#  
-#	
-#	## chain files
-#	ln -s ${PGENOME_PATH}/mat2ref.chain
-#	ln -s ${PGENOME_PATH}/pat2ref.chain
-#
-#	for i in ../1-alignment-${NAME}/*.bowtie
-#	do
-#	ln -s $i
-#	done
-#
-#	## map
-#	## there is a lot of compute here
-#	${PL}/alleledb_map.back.ref.wrapper.sh ${FASTQ}.mat.bowtie maternal MAT mat2ref.chain ${PL} &
-#	${PL}/alleledb_map.back.ref.wrapper.sh ${FASTQ}.pat.bowtie paternal PAT pat2ref.chain ${PL} &
-#	
-#	wait
-#
-#	## postprocess
-#	wc -l *.maternal.*.bed >> 2-map.back.ref-${NAME}.log
-#	wc -l *.paternal.*.bed >> 2-map.back.ref-${NAME}.log
-#
-#	#### clean up/debugging code ####
-#	#cat \
-#	#${FASTQ}.[mp]at.bowtie.[1-9]_[mp]aternal.bed \
-#	#${FASTQ}.[mp]at.bowtie.1[0-9]_[mp]aternal.bed \
-#	#${FASTQ}.[mp]at.bowtie.2[0-2]_[mp]aternal.bed \
-#	#${FASTQ}.[mp]at.bowtie.[XY]_[mp]aternal.bed > ${FASTQ}.[mp]at.bowtie.${MATPATERNAL}.bed
-#	rm ${FASTQ}.mat.bowtie.*_maternal.bed ${FASTQ}.mat.bowtie.*_maternal.bowtie
-#	rm ${FASTQ}.pat.bowtie.*_paternal.bed ${FASTQ}.pat.bowtie.*_paternal.bowtie
-#	
-#	date >> 2-map.back.ref-${NAME}.log
-#	
-#	cd ..
-#fi
-#
-#
-#
-#
+if [[ ${FLAG} =~ 2 ]] ; then
+	## setting up
+	## make directories, go in directory, set up links
+	mkdir 2-domain2info-${DOMAIN}
+	cd 2-domain2info-${DOMAIN}
+	
+	IFILE="motifVar_protPos2gPos.ens${ENS_VER}.smartdomains.txt"
+	OFILE="motifVar_protPos2gPos.ens${ENS_VER}.${DOMAIN}.txt"
+	LFILE="2-domain2info-${DOMAIN}.log"
+	SFILE="motifVar_protPos2gPos.ens${ENS_VER}.${DOMAIN}.ensProteinIDList"
+	ln -s ../0-motifVar_protPos2gPos/${IFILE}
+	
+	## start log print
+	echo "#########################" > ${LFILE}
+  echo "## 2-domain2info ########" >> ${LFILE}
+  echo "#########################" >> ${LFILE}
+  
+  date >> ${LFILE}
+	
+	## get domain info file from master file created in protPos2gPos
+	d=$(echo ${DOMAIN})
+	awk '{OFS="\t"}{FS="\t"}{if($11 == "DOMAIN" || $11 == domain){print $0}}' domain=$d ${IFILE} > ${OFILE}
+	
+	echo "cut -f5 | uniq -c" >> ${LFILE}
+	cut -f5 ${OFILE} | uniq -c >> ${LFILE}
+	
+	## produce unique Ensembl protein IDs with this domain
+	cut -f8 ${OFILE} | sed 1d | sort | uniq > ${SFILE}
+	
+	## housekeeping
+	date >> ${LFILE}
+	
+	echo -e "\n\nPlease use the ensProteinIDList on the Ensembl BioMart (archived or current version) to obtain the fasta file for the proteins and include the fasta file in this folder - named similar to ensProteinIDList with .fasta extension" >> ${LFILE}
+
+	cd ..
+fi
+
+
+
 ##############################################################
-### 3  intersectBed
+### 3  add domain sequence
 ##############################################################
-#if [[ ${FLAG} -eq 3 || ${FLAG} -eq 0 ]] ; then
-#	
-#	## set up
-#	mkdir 3-intersectBed-${NAME}
-#	cd 3-intersectBed-${NAME}
-#	ln -s ${SNPCALLS_PATH}
-#	
-#	
-#	## start log printing	
-#	echo "##########################" > 3-intersectBed-${NAME}.log
-#  echo "## 3-intersectBed  #######" >> 3-intersectBed-${NAME}.log
-#  echo "##########################" >> 3-intersectBed-${NAME}.log
-#  
-#  date >> 3-intersectBed-${NAME}.log
-#
-#	for i in ../2-map.back.ref-${NAME}/*.map2ref.bed
-#	do
-#	ln -s $i
-#	done
-#	
-#	## intersect
-#	## note that my chain files do not have prefix "chr"; could do away if present
-#	intersectBed -a <(awk '{OFS="\t"}{FS="\t"}{print "chr"$0}' ${FASTQ}.mat.bowtie.maternal.map2ref.bed) -b snp.calls.bed -wa -wb > intersect.${FASTQ}.mat.snp.calls.txt &
-#	intersectBed -a <(awk '{OFS="\t"}{FS="\t"}{print "chr"$0}' ${FASTQ}.pat.bowtie.paternal.map2ref.bed) -b snp.calls.bed -wa -wb > intersect.${FASTQ}.pat.snp.calls.txt &
-#	
-#	wait
-#	
-#	## preprocess
-#	wc -l intersect.${FASTQ}.mat.snp.calls.txt >> 3-intersectBed-${NAME}.log
-#	wc -l intersect.${FASTQ}.pat.snp.calls.txt >> 3-intersectBed-${NAME}.log
-#	
-#	date >> 3-intersectBed-${NAME}.log
-#	
-#	cd ..
-#fi
-#
-#
-#
+if [[ ${FLAG} =~ 3 ]] ; then
+	
+	## set up
+	mkdir 3-domaininfo2seq-${DOMAIN}
+	cd 3-domaininfo2seq-${DOMAIN}
+	
+	LFILE="3-domaininfo2seq-${DOMAIN}.log"
+	
+	## start log printing	
+	echo "##########################" > ${LFILE}
+  echo "## 3-intersectBed  #######" >> ${LFILE}
+  echo "##########################" >> ${LFILE}
+  
+  date >> ${LFILE}
+
+	
+  
+  
+  ## housekeeping
+	date >> ${LFILE}
+	
+	cd ..
+fi
+
+
+
 #
 ##############################################################
 ### 4 flip the reads
