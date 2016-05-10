@@ -16,7 +16,10 @@ if [[ "$#" -ne 5 && "$1" -ne -1 ]] ; then
   echo "arg2:domain name from SMART database, e.g. TPR"
   echo "arg3:full path of fasta file from SMART database, with header >smart|TPR-ensembl|ENSP00000245105|ENSP00000245105/560-593 no description [Homo sapiens]"
   echo "arg4:Ensembl version e.g. 73"
-  echo "arg5:module 3; full path of fasta file from Ensembl BioMart, with header >19|ENSG00000104969|ENSP00000221566"  
+  echo "arg5:module 3; full path of fasta file from Ensembl BioMart, with header >19|ENSG00000104969|ENSP00000221566" 
+  echo "arg6:module 4; full path of ensembl2coding file (adapted from Ensembl BioMart); required by module 'protPos2gPos' as well"
+  echo "      --file header: EnsemblGeneID   EnsemblTranscriptID"
+	echo "        EnsemblProteinID    EnsemblExonID  chr      strand"  echo "genomicCodingStart (1-based)      genomicCodingEnd"
   echo -e "\n\n"
   echo "==============================="
   echo "== FLAG CODE =================="
@@ -24,7 +27,8 @@ if [[ "$#" -ne 5 && "$1" -ne -1 ]] ; then
   echo "\"protPos2gPos\": run only the module 'protPos2gPos' (SmartAApos2genomePos), which converts protein positions in SMART domains to genomic positions using Ensembl IDs of proteins with SMART domains"
   echo "1:fasta2prot; convert fasta files from SMART to tab-delimited files, using the fasta headers"
   echo "2:domain2info; requires \"protPos2gPos\", obtain domain info from protPos2gPos info master file"
-  echo "3:info2seq; requires installation of WebLogo, with .bash_profile modified to run WebLogo (download from GitHub)"
+  echo "3:info2seq; requires installation of WebLogo, with .bash_profile modified to run WebLogo (download from GitHub), grabs protein sequences and make a sequence logo using WebLogo"
+  echo "4:domain2codon; requires module 3, outputs a BED file; splice up the DNA sequences into codons using ensembl2coding file"
   echo "a combination of modules:e.g. 12, will run modules 1 and 2; 123, runs modules 1,2 and 3"
   echo "-1: if $1 -eq -1, clean up everything; creates a folder 'trash'"
   echo "e.g. motifvar.sh -1"
@@ -33,15 +37,15 @@ if [[ "$#" -ne 5 && "$1" -ne -1 ]] ; then
 	echo "== 'protPos2gPos' module ======"
 	echo "==============================="
 	echo "arg1: protPos2gPos"
-	echo "arg2: ensembl2coding file (adapted from Ensembl BioMart)"
+	echo "arg2: ensembl2coding file path (adapted from Ensembl BioMart)"
 	echo "      --file header: EnsemblGeneID   EnsemblTranscriptID"
 	echo "        EnsemblProteinID    EnsemblExonID  chr      strand"  echo "genomicCodingStart (1-based)      genomicCodingEnd"
-	echo "arg3: SMART domain file with EnsemblProtID (converted from"
+	echo "arg3: SMART domain file path with EnsemblProtID (converted from"
 	echo "      motifVar_smartAApos2tsv after obtaining SMART domain info from" 
 	echo "Ensembl using perl_api_smart_domains_suganthi.pl)"
 	echo "      --file header: chr     smart   protaastart     protaaend"
 	echo "        EnsemblProtID"
-	echo "arg4: SMART domain file directly from SMART database"
+	echo "arg4: SMART domain file path directly from SMART database"
 	echo "      --file header: DOMAIN  ACC     DEFINITION      DESCRIPTION"
 	echo "arg5: ensembl version"
 	echo "e.g. motifvar.sh protPos2gPos /ens/path/ensembl2coding_ens.noErr.txt /ens/path/allchr.ens73.noErr.tsv /smart/path/smart_domains_1158_all_131025.txt 73"
@@ -126,6 +130,7 @@ DOMAIN=$2
 SMARTFASTA_PATH=$3
 ENS_VER=$4
 ENSEMFASTA_PATH=$5
+ENSEMBFILE_PATH=$6
 
 
 #############################
@@ -136,6 +141,7 @@ echo "DOMAIN             =${DOMAIN}"
 echo "SMARTFASTA_PATH    =${SMARTFASTA_PATH}"  
 echo "ENS_VER            =${ENS_VER}"
 echo "ENSEMFASTA_PATH    =${ENSEMFASTA_PATH}"
+echo "ENSEMBFILE_PATH    =${ENSEMBFILE_PATH}"
 
 
 #############################################################
@@ -268,52 +274,42 @@ if [[ ${FLAG} =~ 3 ]] ; then
 fi
 
 
+##############################################################
+### 4 domain2codon
+##############################################################
+if [[ ${FLAG} =~ 4 ]] ; then
+	## set up
+	mkdir 4-domain2codon-${DOMAIN}
+	cd 4-domain2codon-${DOMAIN} 
+	
+	LFILE="4-domain2codon-${DOMAIN}.log"
+	EFILE=${ENSEMBFILE_PATH}
+	NFILE="${DOMAIN}_mostCommonMotifLen.txt"
+	ln -s ../1-fasta2prot-${DOMAIN}/${NFILE}
+	CLEN=$(cat ${NFILE})
+  IFILE="motifVar_protPos2gPos.ens${ENS_VER}.${DOMAIN}.seq.${CLEN}aa.txt"
+  OFILE="motifVar_protPos2gPos.ens${ENS_VER}.${DOMAIN}.seq.${CLEN}aa.codon.bed"
+	
+	## start log printing
+	echo "############################" > ${LFILE}
+  echo "## 4-domain2codon ##########" >> ${LFILE}
+  echo "############################" >> ${LFILE}
+  
+  date >> ${LFILE}
+  
+	## converting to codons
+	motifVar_Domain2ResidueBed -e ${EFILE} ${IFILE} > ${OFILE}
 
-#
-##############################################################
-### 4 flip the reads
-##############################################################
-#if [[ ${FLAG} -eq 4 || ${FLAG} -eq 0 ]] ; then
-#	## set up
-#	mkdir 4-flip-${NAME}
-#	cd 4-flip-${NAME} 
-#	
-#	## start log printing
-#	echo "############################" > 4-flip-${NAME}.log
-#  echo "## 4-flip the reads  #######" >> 4-flip-${NAME}.log
-#  echo "############################" >> 4-flip-${NAME}.log
-#  
-#  date >> 4-flip-${NAME}.log
-#  
-#	
-#	for i in ../3-intersectBed-${NAME}/intersect.*.snp.calls.txt
-#	do
-#	ln -s $i
-#	done
-#	
-#	## flip and convert to fastq
-#	sort -nk4,4 intersect.${FASTQ}.mat.snp.calls.txt | ${PL}/flipread flipread2fastq 0 5 intersect.${FASTQ}.mat.snp.calls stdin | gzip -c > intersect.${FASTQ}.mat.flipread.fastq.gz &
-#	sort -nk4,4 intersect.${FASTQ}.pat.snp.calls.txt | ${PL}/flipread flipread2fastq 0 5 intersect.${FASTQ}.pat.snp.calls stdin | gzip -c > intersect.${FASTQ}.pat.flipread.fastq.gz &
-#	
-#	wait
-#	
-#	## postprocess
-#	echo -e "$(zcat intersect.${FASTQ}.mat.flipread.fastq.gz | wc -l) intersect.${FASTQ}.mat.flipread.fastq.gz" >> 4-flip-${NAME}.log
-#	wc -l *.mat.*.ids >> 4-flip-${NAME}.log
-#	
-#	echo -e "$(zcat intersect.${FASTQ}.pat.flipread.fastq.gz | wc -l) intersect.${FASTQ}.pat.flipread.fastq.gz" >> 4-flip-${NAME}.log
-#	wc -l *.pat.*.ids >> 4-flip-${NAME}.log
-#	
-#	date >> 4-flip-${NAME}.log
-#	
-#	cd ..
-#fi
-#
-#
-#
-#
-#
-#
+	date >> ${LFILE}
+	
+	cd ..
+fi
+
+
+
+
+
+
 ##############################################################
 ### 5 alignment2
 ##############################################################
