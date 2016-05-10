@@ -1,5 +1,8 @@
 #!/bin/bash
 
+## THINGS TO DO
+## --need to add catches (e.g. no files to softlink, die)"
+
 if [[ "$#" -ne 5 && "$1" -ne -1 ]] ; then
 	echo "==============================="
 	echo "== USAGE ======================"
@@ -13,7 +16,7 @@ if [[ "$#" -ne 5 && "$1" -ne -1 ]] ; then
   echo "arg2:domain name from SMART database, e.g. TPR"
   echo "arg3:full path of fasta file from SMART database, with header >smart|TPR-ensembl|ENSP00000245105|ENSP00000245105/560-593 no description [Homo sapiens]"
   echo "arg4:Ensembl version e.g. 73"
-  echo "arg5:module 3; full path of fasta file from Ensembl BioMart, with header >19|ENSG00000104969|ENSP00000221566"
+  echo "arg5:module 3; full path of fasta file from Ensembl BioMart, with header >19|ENSG00000104969|ENSP00000221566"  
   echo -e "\n\n"
   echo "==============================="
   echo "== FLAG CODE =================="
@@ -21,6 +24,7 @@ if [[ "$#" -ne 5 && "$1" -ne -1 ]] ; then
   echo "\"protPos2gPos\": run only the module 'protPos2gPos' (SmartAApos2genomePos), which converts protein positions in SMART domains to genomic positions using Ensembl IDs of proteins with SMART domains"
   echo "1:fasta2prot; convert fasta files from SMART to tab-delimited files, using the fasta headers"
   echo "2:domain2info; requires \"protPos2gPos\", obtain domain info from protPos2gPos info master file"
+  echo "3:info2seq; requires installation of WebLogo, with .bash_profile modified to run WebLogo (download from GitHub)"
   echo "a combination of modules:e.g. 12, will run modules 1 and 2; 123, runs modules 1,2 and 3"
   echo "-1: if $1 -eq -1, clean up everything; creates a folder 'trash'"
   echo "e.g. motifvar.sh -1"
@@ -222,7 +226,7 @@ fi
 
 
 ##############################################################
-### 3  add domain sequence
+### 3  add domain sequence (info2seq)
 ##############################################################
 if [[ ${FLAG} =~ 3 ]] ; then
 	
@@ -230,18 +234,33 @@ if [[ ${FLAG} =~ 3 ]] ; then
 	mkdir 3-domaininfo2seq-${DOMAIN}
 	cd 3-domaininfo2seq-${DOMAIN}
 	
+	IFILE="motifVar_protPos2gPos.ens${ENS_VER}.${DOMAIN}.txt"
+	OFILE="motifVar_protPos2gPos.ens${ENS_VER}.${DOMAIN}.seq.txt"
+	NFILE="${DOMAIN}_mostCommonMotifLen.txt"
+	ln -s ../1-fasta2prot-${DOMAIN}/${NFILE}
+	CLEN=$(cat ${NFILE})
+  OFILE2="motifVar_protPos2gPos.ens${ENS_VER}.${DOMAIN}.seq.${CLEN}aa.txt"
 	LFILE="3-domaininfo2seq-${DOMAIN}.log"
+	SFILE="motifVar_protPos2gPos.ens${ENS_VER}.${DOMAIN}.seq.${CLEN}aa.1${DOMAIN}"
+	ln -s ../2-domain2info-${DOMAIN}/${IFILE}
 	
 	## start log printing	
 	echo "##########################" > ${LFILE}
-  echo "## 3-intersectBed  #######" >> ${LFILE}
+  echo "## 3-info2seq ############" >> ${LFILE}
   echo "##########################" >> ${LFILE}
   
   date >> ${LFILE}
 
-	
+	## integrate sequence from fasta file from BioMart
+	motifVar_fastaGrab -f ${ENSEMFASTA_PATH} ${IFILE} > ${OFILE}
   
-  
+  ## grab info and sequences of the most common motif length
+  awk '{OFS="\t"}{FS="\t"}{if($10 == commonlength || $10 == "motifSize"){print $0}}' commonlength=${CLEN} ${OFILE} > ${OFILE2}
+
+	## create sequence logos of most common motif length using WebLogo
+	cut -f11 ${OFILE2} | sed 1d | sort | uniq > ${SFILE}
+	weblogo -f ${SFILE} -o ${SFILE}.pdf -F pdf -A protein -U bits --composition "{'L':9.975,'A':7.013,'S':8.326,'V':5.961,'G':6.577,'K':5.723,'T':5.346,'I':4.332','E':7.096,'P':6.316,'R':5.650,'D':4.728,'F':3.658,'Q':4.758,'N':3.586,'Y':2.653,'C':2.307,'H':2.639,'M':2.131,'W':1.216}"  -n ${CLEN} -c chemistry --stack-width 25 --errorbars no
+
   ## housekeeping
 	date >> ${LFILE}
 	
