@@ -1,0 +1,152 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+use Bio::EnsEMBL::Registry;
+
+=head1 NAME
+
+motifVar_ensemblFetchProteinFasta
+
+=head1 SYNOPSIS
+
+ motifVar_ensemblFetchProteinFasta -v <version> <in-file>	
+
+  -h help
+  
+  <beagle-file> 
+  a single-spaced delimited text file with first column as 'I', an identifier header.
+  2 columns represent each sample, with each column representing an allele (ACGT).
+  The first row is the sample-id, second row is the affection status 'A' for each allele. 'M' stands for marker rows.
+                
+ 
+  Example:
+     beagle2tg geno.phased
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input file
+my $ifile = $ARGV[0];
+
+## check if input is TG; exit if it is
+if(isTg($ifile))
+{
+	die "Input file is a TG file. Please use a BEAGLE output file: $!";
+}
+
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+## output file
+my($name, $path, $ext) = fileparse($ifile, '\..*');
+my $ofile = "$name.tg";
+open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
+
+# variables
+my $headerProcessed = 0;
+my %samplelist; # checks for dups
+my @samples; # stores samplelists in the same order as input file
+my $allele1 = '';
+	
+# read Mk file
+while (<INPUT>)
+{
+	s/\r?\n?$//;
+	my @fields = split(/ /, $_);
+	
+	## need the 1st row unique; cos 2 cols for 1 sample
+	## do not need 2nd row (affection)
+	if($headerProcessed == 0)
+	{
+		my $numsamples = (scalar(@fields) - 2)/2; ## this is for checking later
+		
+		for my $sample (@fields)
+		{
+			#print "|$sample|"; #debug
+			if($sample =~ m/(id|I)\b/)
+			{
+				next;
+			}
+			else
+			{
+				if(!exists($samplelist{$sample}))
+				{
+					$samplelist{$sample} = -1;
+					push(@samples,$sample);
+				} ## if sample does not exists in samplelist, push into list
+				else
+				{
+					# do nothing
+				}
+			} ## if the split field doesnt match headers 'id' or 'I'
+		} ## for loop through split @fields
+		
+		if($numsamples != ($#samples + 1))
+		{
+			die "Number of samples: ".($#samples+1)." not equal to number of sample-column-pairs: $numsamples in BEAGLE file.: $!";
+		}
+		
+		$headerProcessed++;
+	} ## if first row header
+	elsif($headerProcessed == 1)
+	{
+		$headerProcessed++;
+		
+		## print headers in OUTPUT
+		print OUTPUT "snp-id";
+		for my $i (@samples)
+		{
+			print OUTPUT "\t$i";
+		}
+		print OUTPUT "\n";
+	} ## if second row header - affection status dun need
+	else
+	{
+		## do not need first I column; NOTE $i begins with 2
+		## prints marker column
+		print OUTPUT "$fields[1]";
+		
+		for(my $i=2; $i<@fields; $i++)
+		{			
+			if($i % 2 == 0)
+			{
+				$allele1 = $fields[$i];
+			}
+			else
+			{
+				print OUTPUT "\t$allele1$fields[$i]";
+			}
+			
+		} # for looping from second column onwards
+		
+		print OUTPUT "\n";
+		
+	} ## else non-header row
+}
+
+close(INPUT);
+close(OUTPUT);
+	
