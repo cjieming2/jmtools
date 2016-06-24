@@ -2,7 +2,6 @@
 
 use warnings;
 use strict;
-use fralib;
 use File::Basename;
 use Getopt::Long;
 use Pod::Usage;
@@ -23,7 +22,7 @@ vcf2tsv
   
   OUTPUT: <infile>.tsv (default)
   Example:
-     vcf2tsv genotype.vcf > vcf2tsv genotype.tsv
+     vcf2tsv genotype.vcf > genotype.tsv
   
 =head1 DESCRIPTION
 
