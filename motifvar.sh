@@ -3,11 +3,11 @@
 ## THINGS TO DO
 ## --need to add catches (e.g. no files to softlink, die)"
 
-if [[ "$#" -ne 5 && "$1" -ne -1 ]] ; then
+if [[ "$#" -ne 6 && "$1" -ne -1 ]] ; then
 	echo "==============================="
 	echo "== USAGE ======================"
 	echo "==============================="
-	echo "motifvar.sh <flag> <smart domain name> <SMART fasta file> <Ensembl version> <Ensembl fasta file>" 
+	echo "motifvar.sh <flag> <smart domain name> <SMART fasta file> <Ensembl version> <Ensembl fasta file> <ensembl2coding file>" 
 	echo "e.g. motifvar.sh 12 TPR /path/HUMAN_TPR.fa 73 - > motifvar-160424.log"
   echo "--note for paths no end '/' pls"
   echo "this script needs 5 arguments"
@@ -108,7 +108,8 @@ if [[ $1 == "protPos2gPos" ]] ; then
 	## housekeeping
 	echo "Converting protein positions in SMART domains to genomic positions using EnsemblProtIDs and SMART domains... Done." >> 0-motifVar_protPos2gPos.log
 	echo -e "motifVar_protPos2gPos.ens${ENS_VER}.smartdomains.txt created. \n\n"
-	echo "**NOTE: Program ran successfully but pls note: post-processing on the smartDomain2gPos output file might be needed - e.g. ID errors, missing data, linesWprobs, CDS not fully annotated etc. This script doesn't check for these. Check Word documentation for details." >> 0-motifVar_protPos2gPos.log
+	echo "Program ran successfully" >> 0-motifVar_protPos2gPos.log
+	echo "[MANUAL WORK] Pls note: post-processing on the smartDomain2gPos output file might be needed - e.g. ID errors, missing data, linesWprobs, CDS not fully annotated etc. This script doesn't check for these. Check Word documentation for details." >> 0-motifVar_protPos2gPos.log
 	date >> 0-motifVar_protPos2gPos.log
 	
 	mkdir src
@@ -224,7 +225,7 @@ if [[ ${FLAG} =~ 2 ]] ; then
 	## housekeeping
 	date >> ${LFILE}
 	
-	echo -e "\n\nPlease use the ensProteinIDList on the Ensembl BioMart (archived or current version) to obtain the fasta file for the proteins and include the fasta file in this folder - named similar to ensProteinIDList with .fasta extension" >> ${LFILE}
+	echo -e "\n\n[MANUAL WORK] Please use the ensProteinIDList on the Ensembl BioMart (archived or current version) to obtain the fasta file for the proteins and include the fasta file in this folder - named similar to ensProteinIDList with .fasta extension" >> ${LFILE}
 
 	cd ..
 fi
@@ -284,10 +285,12 @@ if [[ ${FLAG} =~ 4 ]] ; then
 	
 	LFILE="4-domain2codon-${DOMAIN}.log"
 	EFILE=${ENSEMBFILE_PATH}
+	ln -s ${EFILE}
 	NFILE="${DOMAIN}_mostCommonMotifLen.txt"
 	ln -s ../1-fasta2prot-${DOMAIN}/${NFILE}
 	CLEN=$(cat ${NFILE})
   IFILE="motifVar_protPos2gPos.ens${ENS_VER}.${DOMAIN}.seq.${CLEN}aa.txt"
+  ln -s ../3-domaininfo2seq-${DOMAIN}/${IFILE}
   OFILE="motifVar_protPos2gPos.ens${ENS_VER}.${DOMAIN}.seq.${CLEN}aa.codon.bed"
 	
 	## start log printing
@@ -301,12 +304,10 @@ if [[ ${FLAG} =~ 4 ]] ; then
 	motifVar_Domain2ResidueBed -e ${EFILE} ${IFILE} > ${OFILE}
 
 	date >> ${LFILE}
+	echo "[MANUAL WORK] This module prepares the domains, by converting them into codons. The next file needs to be prepared manually: the SNV BED file from a catalog, e.g. ExAC. Since the last info column of this BED file can vary depending on the catalog source and since there isn't header in a BED file, the SNV BED file needs to be prepared separately and manually. Put this file in this 4-~ folder. e.g. ExAC.r0.3.sites.vep.snps.pass.bed - you do not need to remove singletons" >> ${LFILE}
 	
 	cd ..
 fi
-
-
-
 
 
 
