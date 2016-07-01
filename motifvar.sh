@@ -2,15 +2,18 @@
 
 ## THINGS TO DO
 ## --need to add catches (e.g. no files to softlink, die)"
+## --dependencies 
+##   - requires VEP installation for module 6 (otherwise you do not need VEP)
+##   - requires intersectBed from bedtools
 
-if [[ "$#" -ne 6 && "$1" -ne -1 ]] ; then
+if [[ "$#" -ne 9 && "$1" -ne -1 ]] ; then
 	echo "==============================="
 	echo "== USAGE ======================"
 	echo "==============================="
-	echo "motifvar.sh <flag> <smart domain name> <SMART fasta file> <Ensembl version> <Ensembl fasta file> <ensembl2coding file>" 
-	echo "e.g. motifvar.sh 12 TPR /path/HUMAN_TPR.fa 73 - > motifvar-160424.log"
-  echo "--note for paths no end '/' pls"
-  echo "this script needs 5 arguments"
+	echo "motifvar.sh <flag> <smart domain name> <SMART fasta file> <Ensembl version> <Ensembl fasta file> <ensembl2coding file> <SNV BED file> <column number> <SNV catalog name>" 
+	echo "e.g. motifvar.sh 12 TPR /path/HUMAN_TPR.fa 73 - ExAC.pass.bed 8 ExAC.r0.3 > motifvar-160424.log"
+  echo "--note for paths do not end with '/' pls"
+  echo "this script needs 7 arguments"
   echo "--if a file is module-specific, you can use '-' to replace"
   echo "arg1:flag (refer to flag code) "
   echo "arg2:domain name from SMART database, e.g. TPR"
@@ -20,6 +23,9 @@ if [[ "$#" -ne 6 && "$1" -ne -1 ]] ; then
   echo "arg6:module 4; full path of ensembl2coding file (adapted from Ensembl BioMart); required by module 'protPos2gPos' as well"
   echo "      --file header: EnsemblGeneID   EnsemblTranscriptID"
 	echo "        EnsemblProteinID    EnsemblExonID  chr      strand"  echo "genomicCodingStart (1-based)      genomicCodingEnd"
+	echo "arg7:module 5; SNV BED file (should be in folder 4)"
+	echo "arg8:module 5; column for allele count in SNV BED file to filter singletons (AC=1)"
+	echo "arg9:module 5; SNV catalog name, e.g. ExAC.r0.3"
   echo -e "\n\n"
   echo "==============================="
   echo "== FLAG CODE =================="
@@ -28,8 +34,10 @@ if [[ "$#" -ne 6 && "$1" -ne -1 ]] ; then
   echo "1:fasta2prot; convert fasta files from SMART to tab-delimited files, using the fasta headers"
   echo "2:domain2info; requires \"protPos2gPos\", obtain domain info from protPos2gPos info master file"
   echo "3:info2seq; requires installation of WebLogo, with .bash_profile modified to run WebLogo (download from GitHub), grabs protein sequences and make a sequence logo using WebLogo"
-  echo "4:domain2codon; requires module 3, outputs a BED file; splice up the DNA sequences into codons using ensembl2coding file"
+  echo "4:domain2codon; requires modules 1 and 3, outputs a BED file; splice up the DNA sequences into codons using ensembl2coding file"
   echo "a combination of modules:e.g. 12, will run modules 1 and 2; 123, runs modules 1,2 and 3"
+  echo "5:codonIntersectSnv; requires modules 1 and 4, output a BED file; intersects codon BED file with SNV BED file, removes chrX, chrY, chrM (auto), removes allele count 1 based on arg8 provided by user"
+  echo "6:VEP; include information from VEP, requires VEP installation"
   echo "-1: if $1 -eq -1, clean up everything; creates a folder 'trash'"
   echo "e.g. motifvar.sh -1"
   echo -e "\n\n"
@@ -88,16 +96,26 @@ if [[ $1 == "protPos2gPos" ]] ; then
 	DOMAINFILE=$4
 	ENS_VER=$5
 	
+	LFILE="0-motifVar_protPos2gPos.log"
+	
 	ln -s ${ENSEMBLFILE}
 	ln -s ${DOMAINENSFILE}
 	ln -s ${DOMAINFILE}
 
 	## start log print
-	echo "#######################" > 0-motifVar_protPos2gPos.log
-	echo "## protPos2gPos #######" >> 0-motifVar_protPos2gPos.log
-	echo "#######################" >> 0-motifVar_protPos2gPos.log
+	echo "#######################" > ${LFILE}
+	echo "## protPos2gPos #######" >> ${LFILE}
+	echo "#######################" >> ${LFILE}
+	 
+	echo "Parameters:" >> ${LFILE}
+	echo "ENSEMBL FILE         =${ENSEMBLFILE}" >> ${LFILE}
+	echo "DOMAIN ENSEMBL FILE  =${DOMAINENSFILE}" >> ${LFILE}
+	echo "DOMAIN FILE          =${DOMAINFILE}" >> ${LFILE}
+	echo "ENSEMBL DB VERSION   =${ENS_VER}" >> ${LFILE}
 	
-	date >> 0-motifVar_protPos2gPos.log
+	echo "\n\n" >> ${LFILE}
+	
+	date >> ${LFILE}
 	
 	## convert protein positions of SMART domains to genomic positions using Ensembl
 	motifVar_smartAApos2genomePos -e ${ENSEMBLFILE} ${DOMAINENSFILE} | awk 'NR == 1; NR > 1 {if($2>$3){print $1"\t"$3"\t"$2"\t"$4"\t"$5"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10}else{print $0}}' > temp.txt
@@ -106,11 +124,11 @@ if [[ $1 == "protPos2gPos" ]] ; then
 	fselect a.+,b.DOMAIN,b.DEFINITION from temp.txt, $DOMAINFILE where a.smart=b.ACC | sed 's/ /_/g' | sed -e 's/\t\t/\tNA\t/g' -e 's/\t\n/\tNA\n/g' > motifVar_protPos2gPos.ens${ENS_VER}.smartdomains.txt
 	
 	## housekeeping
-	echo "Converting protein positions in SMART domains to genomic positions using EnsemblProtIDs and SMART domains... Done." >> 0-motifVar_protPos2gPos.log
+	echo "Converting protein positions in SMART domains to genomic positions using EnsemblProtIDs and SMART domains... Done." >> ${LFILE}
 	echo -e "motifVar_protPos2gPos.ens${ENS_VER}.smartdomains.txt created. \n\n"
-	echo "Program ran successfully" >> 0-motifVar_protPos2gPos.log
-	echo "[MANUAL WORK] Pls note: post-processing on the smartDomain2gPos output file might be needed - e.g. ID errors, missing data, linesWprobs, CDS not fully annotated etc. This script doesn't check for these. Check Word documentation for details." >> 0-motifVar_protPos2gPos.log
-	date >> 0-motifVar_protPos2gPos.log
+	echo "Program ran successfully" >> ${LFILE}
+	echo "[MANUAL WORK] Pls note: post-processing on the smartDomain2gPos output file might be needed - e.g. ID errors, missing data, linesWprobs, CDS not fully annotated etc. This script doesn't check for these. Check Word documentation for details." >> ${LFILE}
+	date >> ${LFILE}
 	
 	mkdir src
 	mv ${ENSEMBLFILE} ${DOMAINENSFILE} ${DOMAINFILE} src
@@ -132,6 +150,9 @@ SMARTFASTA_PATH=$3
 ENS_VER=$4
 ENSEMFASTA_PATH=$5
 ENSEMBFILE_PATH=$6
+SNV_BED=$7
+AC_COL=$8
+SNV_NAME=$9
 
 
 #############################
@@ -143,7 +164,9 @@ echo "SMARTFASTA_PATH    =${SMARTFASTA_PATH}"
 echo "ENS_VER            =${ENS_VER}"
 echo "ENSEMFASTA_PATH    =${ENSEMFASTA_PATH}"
 echo "ENSEMBFILE_PATH    =${ENSEMBFILE_PATH}"
-
+echo "SNV_BED            =${SNV_BED}"
+echo "ALLELE_COUNT_COL   =${AC_COL}"
+echo "SNV_CATALOG_NAME   =${SNV_NAME}"
 
 #############################################################
 ## 1 fasta2prot
@@ -310,203 +333,100 @@ if [[ ${FLAG} =~ 4 ]] ; then
 fi
 
 
+##############################################################
+### 5 codonIntersectSnv
+##############################################################
+if [[ ${FLAG} =~ 5 ]] ; then
+
+	## set up
+	mkdir 5-codonIntersectSnv-${DOMAIN}
+	cd 5-codonIntersectSnv-${DOMAIN} 
+	
+	LFILE="5-codonIntersectSnv-${DOMAIN}.log"
+	NFILE="${DOMAIN}_mostCommonMotifLen.txt"
+	ln -s ../1-fasta2prot-${DOMAIN}/${NFILE}
+	CLEN=$(cat ${NFILE})
+  IFILE="motifVar_protPos2gPos.ens${ENS_VER}.${DOMAIN}.seq.${CLEN}aa.codon.bed"
+  ln -s ../4-domain2codon-${DOMAIN}/${IFILE}
+  ln -s ../4-domain2codon-${DOMAIN}/${SNV_BED}
+  OFILE="motifVar_${SNV_NAME}.ens${ENS_VER}.codon.${DOMAIN}.auto.noS.bed"
+	
+	## start log printing
+	echo "############################" > ${LFILE}
+  echo "## 5-codonIntersectSnv ##########" >> ${LFILE}
+  echo "############################" >> ${LFILE}
+  
+  date >> ${LFILE}
+  
+	## intersect codon with SNVs
+	## remove chrX chrY chrM
+	col=${AC_COL}
+	intersectBed -a ${SNV_BED} -b ${IFILE} -wa -wb | awk '{OFS="\t"}{FS="\t"}{if($1 != "chrX" && $1 != "chrY" && $1 != "chrM"){print $0}}' | awk '{OFS="\t"}{FS="\t"}{if($col > 1){print $0}}' col=$col > ${OFILE}
+	
+	## count how many SNVs
+	wc -l ${OFILE} >> ${LFILE}
+	
+	## count how many unique SNVs
+	echo "Number of unique SNVs = " $(cut -f1-3 ${OFILE} | sortyChr.sh - | uniq | wc -l) >> ${LFILE}
+
+	echo "NOTE: ${OFILE} can be redundant because an SNV can affect codons from different proteins from the same gene." >> ${LFILE}
+	date >> ${LFILE}
+	
+fi
+
 
 ##############################################################
-### 5 alignment2
+### 6 vep
 ##############################################################
-#if [[ ${FLAG} -eq 5 || ${FLAG} -eq 0 ]] ; then
-#	
-#	## set up
-#	mkdir 5-alignment2-${NAME}
-#	cd 5-alignment2-${NAME}
-#	
-#	## start log printing
-#	echo "#####################################" > 5-alignment2-${NAME}.log
-#  echo "## 5-alignment2 flipped reads #######" >> 5-alignment2-${NAME}.log
-#  echo "#####################################" >> 5-alignment2-${NAME}.log
-#  
-#  date >> 5-alignment2-${NAME}.log
-#
-#
-#	for i in ../4-flip-${NAME}/*.fastq.gz
-#	do
-#	ln -s $i
-#	done
-#
-#	## align flipped reads
-#	# mat flip to mat and pat genomes
-#	zcat intersect.${FASTQ}.mat.flipread.fastq.gz | bowtie --un intersect.${FASTQ}.matflip2pat.flipread.unaligned --max intersect.${FASTQ}.matflip2pat.flipread.multi --best --strata -v 2 -m 1 -q ${PGENOME_PATH}/AltRefFather/AltRefFather - > intersect.${FASTQ}.matflip2pat.flipread.bowtie 2> intersect.${FASTQ}.matflip2pat.flipread.log &  
-#
-#	# pat flip to mat and pat genomes
-#	zcat intersect.${FASTQ}.pat.flipread.fastq.gz | bowtie --un intersect.${FASTQ}.patflip2mat.flipread.unaligned --max intersect.${FASTQ}.patflip2mat.flipread.multi --best --strata -v 2 -m 1 -q ${PGENOME_PATH}/AltRefMother/AltRefMother - > intersect.${FASTQ}.patflip2mat.flipread.bowtie 2> intersect.${FASTQ}.patflip2mat.flipread.log &
-#	
-#	wait
-#	
-#	## make chain files
-#	ln -s ${PGENOME_PATH}/mat2ref.chain
-#	ln -s ${PGENOME_PATH}/pat2ref.chain
-#	
-#	## check if mat and pat locations of the same read match
-#	## map back to reference; mat and pat locations should match
-#	${PL}/alleledb_map.back.ref.wrapper.sh intersect.${FASTQ}.matflip2pat.flipread.bowtie paternal PAT pat2ref.chain ${PL} &
-#	${PL}/alleledb_map.back.ref.wrapper.sh intersect.${FASTQ}.patflip2mat.flipread.bowtie maternal MAT mat2ref.chain ${PL} &
-#	
-#	wait 
-#	
-#	## compare mat and pat reference coordinates
-#	join -t $'\t' <(sed 's/\#\*o\*\#/\t/g' intersect.${FASTQ}.matflip2pat.flipread.bowtie.paternal.map2ref.bed | awk '{OFS="\t"}{FS="\t"}{print $4,$1,$2,$3}' | sort ) \
-#	<(sed 's/\#\*o\*\#/\t/g' intersect.${FASTQ}.patflip2mat.flipread.bowtie.maternal.map2ref.bed | awk '{OFS="\t"}{FS="\t"}{print $4,$1,$2,$3}' | sort ) \
-#	| sort | uniq | awk '{OFS="\t"}{FS="\t"}{if($2!=$5 && (sqrt(($3-$6)^2)>10 || sqrt(($4-$7)^2)>10)){print $0}}' > matpat.remove.reads.location.not.matched.txt
-#	
-#	
-#	## remove the mapping intermediate files
-#	rm intersect.${FASTQ}.matflip2pat.flipread.bowtie.*_paternal.bed intersect.${FASTQ}.matflip2pat.flipread.bowtie.*_paternal.bowtie intersect.${FASTQ}.matflip2pat.flipread.bowtie.paternal.map2ref.bed intersect.${FASTQ}.matflip2pat.flipread.bowtie.paternal.unmap2ref.log
-#	rm intersect.${FASTQ}.patflip2mat.flipread.bowtie.*_maternal.bed intersect.${FASTQ}.patflip2mat.flipread.bowtie.*_maternal.bowtie intersect.${FASTQ}.patflip2mat.flipread.bowtie.maternal.map2ref.bed intersect.${FASTQ}.patflip2mat.flipread.bowtie.maternal.unmap2ref.log
-#	
-#	## postprocessing
-#	echo "Note that there are redundancies in read IDs of the all files from here on due to multiple flipped reads simulated from reads that overlap >1 hetSNVs; unless there are only reads with 1 SNV" >> 5-alignment2-${NAME}.log
-#	echo "Here, the matpat.remove.reads.~txt file is only sorted and unique by row, not by read IDs" >> 5-alignment2-${NAME}.log
-#	wc -l intersect.${FASTQ}.matflip2pat.flipread.* >> 5-alignment2-${NAME}.log
-#	wc -l intersect.${FASTQ}.patflip2mat.flipread.* >> 5-alignment2-${NAME}.log
-#	wc -l matpat.remove.reads.location.not.matched.txt >> 5-alignment2-${NAME}.log
-#	
-#	date >> 5-alignment2-${NAME}.log
-#	
-#	cd ..
-#fi
-#
-#
-#
-#
-#
-##############################################################
-### 6 unaligned
-##############################################################
-#if [[ ${FLAG} -eq 6 || ${FLAG} -eq 0 ]] ; then
-#	## set up
-#	mkdir 6-unaligned-${NAME}
-#	cd 6-unaligned-${NAME}
-#	
-#	
-#	## start log printing
-#	echo "###########################################" > 6-unaligned-${NAME}.log
-#  echo "## 6-check unaligned flipped reads  #######" >> 6-unaligned-${NAME}.log
-#  echo "###########################################" >> 6-unaligned-${NAME}.log
-#  
-#  date >> 6-unaligned-${NAME}.log
-#
-#	ln -s ../5-alignment2-${NAME}/intersect.${FASTQ}.matflip2pat.flipread.unaligned 
-#	ln -s ../5-alignment2-${NAME}/intersect.${FASTQ}.patflip2mat.flipread.unaligned 
-#	
-#	## original mat and pat
-#	ln -s ../3-intersectBed-${NAME}/intersect.${FASTQ}.mat.snp.calls.txt
-#	ln -s ../3-intersectBed-${NAME}/intersect.${FASTQ}.pat.snp.calls.txt
-#
-#	## preprocess for unaligned analyses	
-#	echo "Note that there are redundancies in read IDs of the all files from here on due to multiple flipped reads simulated from reads that overlap >1 hetSNVs; unless there are only reads with 1 SNV"
-#	${PL}/alleledb_multis-and-unaligneds-wrapper.sh intersect.${FASTQ}.matflip2pat.flipread.unaligned intersect.${FASTQ}.mat.snp.calls.txt mat ${PL}
-#	${PL}/alleledb_multis-and-unaligneds-wrapper.sh intersect.${FASTQ}.patflip2mat.flipread.unaligned intersect.${FASTQ}.pat.snp.calls.txt pat ${PL}
-#	
-#	date >> 6-unaligned-${NAME}.log
-#	
-#	cd ..
-#fi
-#
-#
-#
-#
-#
-##############################################################
-### 7 multi
-##############################################################
-#if [[ ${FLAG} -eq 7 || ${FLAG} -eq 0 ]] ; then
-#	## set up
-#	mkdir 7-multi-${NAME}
-#	cd 7-multi-${NAME}
-#	
-#	## start log printing
-#	echo "#######################################" > 7-multi-${NAME}.log
-#  echo "## 7-check multi flipped reads  #######" >> 7-multi-${NAME}.log
-#  echo "#######################################" >> 7-multi-${NAME}.log
-#  
-#  date >> 7-multi-${NAME}.log
-#
-#	ln -s ../5-alignment2-${NAME}/intersect.${FASTQ}.matflip2pat.flipread.multi
-#	ln -s ../5-alignment2-${NAME}/intersect.${FASTQ}.patflip2mat.flipread.multi
-#
-#	## original mat and pat
-#	ln -s ../3-intersectBed-${NAME}/intersect.${FASTQ}.mat.snp.calls.txt
-#	ln -s ../3-intersectBed-${NAME}/intersect.${FASTQ}.pat.snp.calls.txt
-#	
-#	## preprocess for multimappers
-#	echo "Note that there are redundancies in read IDs of the all files from here on due to multiple flipped reads simulated from reads that overlap >1 hetSNVs; unless there are only reads with 1 SNV"
-#	${PL}/alleledb_multis-and-unaligneds-wrapper.sh intersect.${FASTQ}.matflip2pat.flipread.multi intersect.${FASTQ}.mat.snp.calls.txt mat ${PL}
-#  ${PL}/alleledb_multis-and-unaligneds-wrapper.sh intersect.${FASTQ}.patflip2mat.flipread.multi intersect.${FASTQ}.pat.snp.calls.txt pat ${PL}
-#	
-#	date >> 7-multi-${NAME}.log
-#	
-#	cd ..
-#fi
-#
-### get out of allelicbias folder
-#cd ..
-#
-#
-#
-#
-#
-##############################################################
-### 8 fsieve original multi reads from original fastq
-### then run alleleseq again on this filtered fastqs
-##############################################################
-#if [[ ${FLAG} -eq 8 || ${FLAG} -eq 0 ]] ; then
-#	echo "################################################" > 8-final-run.log
-#	echo "## 8 rerun alleleseq on bias filtered reads ####" >> 8-final-run.log
-#	echo "################################################" >> 8-final-run.log
-#	
-#	date >> 8-final-run.log
-#
-#	## 1) cut for BED and then sort and uniq to obtain ids
-#	## 2a) removes reads from original aligned bowtie files in folder 1
-#	## 2b) Run AlleleSeq-betabinomial on filtered bowtie
-#	
-#	ln -s ./allelicbias-${PGENOME}-${NAME}/1-alignment-${NAME}/${FASTQ}.mat.bowtie
-#	ln -s ./allelicbias-${PGENOME}-${NAME}/1-alignment-${NAME}/${FASTQ}.pat.bowtie
-#	
-#	## 1) create ID list of all reads that multimap	
-#	echo "Note that all redundancies in read IDs that are to be removed are made unique here"
-#	cat <(cat ./allelicbias-${PGENOME}-${NAME}/7-multi-${NAME}/originalpatreads.intersect.${FASTQ}.patflip2mat.flipread.multi.bed ./allelicbias-${PGENOME}-${NAME}/7-multi-${NAME}/originalmatreads.intersect.${FASTQ}.matflip2pat.flipread.multi.bed | sed 's/\#\*o\*\#/\t/g' | cut -f4) \
-#	./allelicbias-${PGENOME}-${NAME}/4-flip-${NAME}/intersect.${FASTQ}.mat.snp.calls.removedreads.ids \
-#	./allelicbias-${PGENOME}-${NAME}/4-flip-${NAME}/intersect.${FASTQ}.mat.snp.calls.taggedreads.ids \
-#	./allelicbias-${PGENOME}-${NAME}/4-flip-${NAME}/intersect.${FASTQ}.mat.snp.calls.tooManySNVsReads.ids \
-#	./allelicbias-${PGENOME}-${NAME}/4-flip-${NAME}/intersect.${FASTQ}.pat.snp.calls.removedreads.ids \
-#	./allelicbias-${PGENOME}-${NAME}/4-flip-${NAME}/intersect.${FASTQ}.pat.snp.calls.taggedreads.ids \
-#	./allelicbias-${PGENOME}-${NAME}/4-flip-${NAME}/intersect.${FASTQ}.pat.snp.calls.tooManySNVsReads.ids \
-#	<(cut -f1 ./allelicbias-${PGENOME}-${NAME}/5-alignment2-${NAME}/matpat.remove.reads.location.not.matched.txt) \
-#	 | sort | uniq > originalmatpatreads.toremove.ids
-#
-#
-#
-#	## 2) run alleleseq with betabinomial calculations
-#	echo "##############################" >> 8-final-run.log
-#	echo "### ALLELESEQ-BINOMIAL-RUN ###" >> 8-final-run.log
-#	echo "##############################" >> 8-final-run.log
-#	date >> 8-final-run.log
-#	make -f ${PGENOME_PATH}/${PIPELINEFILE} PREFIX=${FASTQ} >> 8-final-run.log
-#	
-#	${PL}/alleledb_alleleseqOutput2betabinomFormat.sh ${NAME} ${AS} ${PL} counts
-#	${PL}/alleledb_alleleseqOutput2betabinomFormat.sh ${NAME} ${AS} ${PL} interestingHets 
-#	
-#	# betabinomial
-#	echo "folder=\"$(pwd)/\"; setwd(folder)" | cat - ${PL}/alleledb_calcOverdispersion.R > calcOverdispersion.R 
-#	R CMD BATCH ./calcOverdispersion.R  
-#	echo "folder=\"$(pwd)/\"; setwd(folder)" | cat - ${PL}/alleledb_alleleseqBetabinomial.R > alleleseqBetabinomial.R 
-#	R CMD BATCH "--args FDR.thresh=$FDR_THRESH" ./alleleseqBetabinomial.R  
-#	
-#	${PL}/alleledb_alleleseqOutput2betabinomFormat.sh ${NAME} ${AS} ${PL} interestingHets.betabinom
-#	${PL}/alleledb_alleleseqOutput2betabinomFormat.sh ${NAME} ${AS} ${PL} counts.betabinom
-#	
-#	date >> 8-final-run.log
-#fi
-#
-#
+if [[ $1 == "vep" ]] ; then
+	## setting up
+	## make directories, go in directory, set up links
+	mkdir 6-vep
+	cd 6-vep
+	
+	ENSEMBLFILE=$2
+	DOMAINENSFILE=$3
+	DOMAINFILE=$4
+	ENS_VER=$5
+	
+	ln -s ${ENSEMBLFILE}
+	ln -s ${DOMAINENSFILE}
+	ln -s ${DOMAINFILE}
+
+	## set up
+	mkdir 5-codonIntersectSnv-${DOMAIN}
+	cd 5-codonIntersectSnv-${DOMAIN} 
+	
+	LFILE="5-codonIntersectSnv-${DOMAIN}.log"
+	NFILE="${DOMAIN}_mostCommonMotifLen.txt"
+	ln -s ../1-fasta2prot-${DOMAIN}/${NFILE}
+	CLEN=$(cat ${NFILE})
+  IFILE="motifVar_protPos2gPos.ens${ENS_VER}.${DOMAIN}.seq.${CLEN}aa.codon.bed"
+  ln -s ../4-domain2codon-${DOMAIN}/${IFILE}
+  ln -s ../4-domain2codon-${DOMAIN}/${SNV_BED}
+  OFILE="motifVar_${SNV_NAME}.ens${ENS_VER}.codon.${DOMAIN}.auto.noS.bed"
+	
+	## start log printing
+	echo "############################" > ${LFILE}
+  echo "## 5-codonIntersectSnv ##########" >> ${LFILE}
+  echo "############################" >> ${LFILE}
+  
+  echo "Parameters:" >> ${LFILE}
+	echo "ENSEMBL FILE         =${ENSEMBLFILE}" >> ${LFILE}
+	echo "DOMAIN ENSEMBL FILE  =${DOMAINENSFILE}" >> ${LFILE}
+	echo "DOMAIN FILE          =${DOMAINFILE}" >> ${LFILE}
+	echo "ENSEMBL DB VERSION   =${ENS_VER}" >> ${LFILE}
+	
+  date >> ${LFILE}
+  
+  echo "\n\n" >> ${LFILE}
+  
+	## intersect codon with SNVs
+	## remove chrX chrY chrM
+	col=${AC_COL}
+	intersectBed -a ${SNV_BED} -b ${IFILE} -wa -wb | awk '{OFS="\t"}{FS="\t"}{if($1 != "chrX" && $1 != "chrY" && $1 != "chrM"){print $0}}' | awk '{OFS="\t"}{FS="\t"}{if($col > 1){print $0}}' col=$col > ${OFILE}
+
+	echo "NOTE: ${OFILE} can be redundant because an SNV can affect codons from different proteins from the same gene." >> ${LFILE}
+	date >> ${LFILE}
+	
+fi
