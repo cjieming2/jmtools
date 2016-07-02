@@ -25,7 +25,8 @@ if [[ "$#" -ne 9 && "$1" -ne -1 ]] ; then
 	echo "        EnsemblProteinID    EnsemblExonID  chr      strand"  echo "genomicCodingStart (1-based)      genomicCodingEnd"
 	echo "arg7:module 5; SNV BED file (should be in folder 4)"
 	echo "arg8:module 5; column for allele count in SNV BED file to filter singletons (AC=1)"
-	echo "arg9:module 5; SNV catalog name, e.g. ExAC.r0.3"
+	echo "arg9:modules 5 and 6; SNV catalog name, e.g. ExAC.r0.3"
+	echo "arg10:module 6; path of VEP 73 tool"
   echo -e "\n\n"
   echo "==============================="
   echo "== FLAG CODE =================="
@@ -37,7 +38,7 @@ if [[ "$#" -ne 9 && "$1" -ne -1 ]] ; then
   echo "4:domain2codon; requires modules 1 and 3, outputs a BED file; splice up the DNA sequences into codons using ensembl2coding file"
   echo "a combination of modules:e.g. 12, will run modules 1 and 2; 123, runs modules 1,2 and 3"
   echo "5:codonIntersectSnv; requires modules 1 and 4, output a BED file; intersects codon BED file with SNV BED file, removes chrX, chrY, chrM (auto), removes allele count 1 based on arg8 provided by user"
-  echo "6:VEP; include information from VEP, requires VEP installation"
+  echo "6:VEP; requires module 5 and VEP 73, Ensembl v73 cache and API to be installed; this module also assumes an LSF (bsub) scheduler. It assumes also that the SNV BED file has the following columns: \n col1:chr, col3:end position 1 based, col5:ref allele, col6:alt allele \n NOTE: if SNV file is not in the format above, scheduler not LSF and not VEP 73, this module needs to be manually edited in this script. "
   echo "-1: if $1 -eq -1, clean up everything; creates a folder 'trash'"
   echo "e.g. motifvar.sh -1"
   echo -e "\n\n"
@@ -153,6 +154,7 @@ ENSEMBFILE_PATH=$6
 SNV_BED=$7
 AC_COL=$8
 SNV_NAME=$9
+VEP_PATH=$10
 
 
 #############################
@@ -167,6 +169,7 @@ echo "ENSEMBFILE_PATH    =${ENSEMBFILE_PATH}"
 echo "SNV_BED            =${SNV_BED}"
 echo "ALLELE_COUNT_COL   =${AC_COL}"
 echo "SNV_CATALOG_NAME   =${SNV_NAME}"
+echo "VEP_PATH           =${VEP_PATH}"
 
 #############################################################
 ## 1 fasta2prot
@@ -378,55 +381,66 @@ fi
 ##############################################################
 ### 6 vep
 ##############################################################
-if [[ $1 == "vep" ]] ; then
+if [[ ${FLAG} =~ 6 ]] ; then
 	## setting up
 	## make directories, go in directory, set up links
-	mkdir 6-vep
-	cd 6-vep
+	mkdir 6-vep-${DOMAIN}
+	cd 6-vep-${DOMAIN}
 	
-	ENSEMBLFILE=$2
-	DOMAINENSFILE=$3
-	DOMAINFILE=$4
-	ENS_VER=$5
+	## set up
+	LFILE="6-vep-${DOMAIN}.log"
+	ln -s ../5-codonIntersectSnv-${DOMAIN}/motifVar_${SNV_NAME}.ens${ENS_VER}.codon.${DOMAIN}.auto.noS.bed
+	VIPUT="motifVar_${SNV_NAME}.ens${ENS_VER}.codon.${DOMAIN}.auto.noS.vepinput"
+	VOPUT="motifVar_${SNV_NAME}.ens${ENS_VER}.codon.${DOMAIN}.auto.noS.vepoutput"
 	
 	ln -s ${ENSEMBLFILE}
 	ln -s ${DOMAINENSFILE}
 	ln -s ${DOMAINFILE}
 
-	## set up
-	mkdir 5-codonIntersectSnv-${DOMAIN}
-	cd 5-codonIntersectSnv-${DOMAIN} 
-	
-	LFILE="5-codonIntersectSnv-${DOMAIN}.log"
-	NFILE="${DOMAIN}_mostCommonMotifLen.txt"
-	ln -s ../1-fasta2prot-${DOMAIN}/${NFILE}
-	CLEN=$(cat ${NFILE})
-  IFILE="motifVar_protPos2gPos.ens${ENS_VER}.${DOMAIN}.seq.${CLEN}aa.codon.bed"
-  ln -s ../4-domain2codon-${DOMAIN}/${IFILE}
-  ln -s ../4-domain2codon-${DOMAIN}/${SNV_BED}
-  OFILE="motifVar_${SNV_NAME}.ens${ENS_VER}.codon.${DOMAIN}.auto.noS.bed"
-	
 	## start log printing
 	echo "############################" > ${LFILE}
-  echo "## 5-codonIntersectSnv ##########" >> ${LFILE}
+  echo "## 6-vep-${DOMAIN} #########" >> ${LFILE}
   echo "############################" >> ${LFILE}
-  
-  echo "Parameters:" >> ${LFILE}
-	echo "ENSEMBL FILE         =${ENSEMBLFILE}" >> ${LFILE}
-	echo "DOMAIN ENSEMBL FILE  =${DOMAINENSFILE}" >> ${LFILE}
-	echo "DOMAIN FILE          =${DOMAINFILE}" >> ${LFILE}
-	echo "ENSEMBL DB VERSION   =${ENS_VER}" >> ${LFILE}
 	
   date >> ${LFILE}
-  
-  echo "\n\n" >> ${LFILE}
-  
-	## intersect codon with SNVs
-	## remove chrX chrY chrM
-	col=${AC_COL}
-	intersectBed -a ${SNV_BED} -b ${IFILE} -wa -wb | awk '{OFS="\t"}{FS="\t"}{if($1 != "chrX" && $1 != "chrY" && $1 != "chrM"){print $0}}' | awk '{OFS="\t"}{FS="\t"}{if($col > 1){print $0}}' col=$col > ${OFILE}
+ 	
+ 	echo "input file = motifVar_${SNV_NAME}.ens${ENS_VER}.codon.${DOMAIN}.auto.noS.bed" >> ${LFILE}
+ 	
+ 	## make vepinput
+ 	awk '{OFS="\t"}{FS="\t"}{print $1,$3,$3,$5"/"$6,"+"}' ${LFILE} | sortByChr.sh - | sed 's/^chr//g' | uniq > ${VIPUT}
+ 	
+ 	## run vep by chromosome
+ 	for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 X Y; do awk '{OFS="\t"}{FS="\t"}{if($1 == "'$i'"){print $0}}' ${VIPUT} > vepinput.'"$i"'.txt ; perl ${VEP_PATH} -i vepinput."\$i".txt -o vepoutput."\$i".txt --force -sift=b -polyphen=b --ccds --numbers --domains --regulatory --canonical --protein --cache &; done
+ 	
+ 	wait
+ 	
+ 	## process and combine vepoutput
+ 	grep "#" vepoutput.1.txt > header.vepoutput
+ 	
+ 	for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 X Y; do grep -v "#" vepoutput."$i".txt ; done | cat header.vepoutput - > ${VOPUT}
+ 	
+ 	## produce multiple output files
+ 	# coding file has redundancy because of multiple transcripts
+ 	grep -v "##" ${VOPUT} | awk '{OFS="\t"}{FS="\t"}{if($6 == "Feature_type" || $6 == "Transcript"){print $0}}' | awk '{OFS="\t"}{FS="\t"}{if($7 == "Consequence" || $7 == "NON_SYNONYMOUS_CODING" || $7 == "NON_SYNONYMOUS_CODING,SPLICE_SITE" || $7 == "STOP_GAINED" || $7 == "STOP_LOST" || $7 == "SYNONYMOUS_CODING" || $7 == "SYNONYMOUS_CODING,SPLICE_SITE" || $7 == "STOP_GAINED,SPLICE_SITE"){print $0}}' > ${VOPUT}.coding
+ 	
+ 	# canonical to get 'unique' canonical transcript
+ 	# not all unique though even with canonical
+ 	# need to check by comparing with vepinput
+ 	egrep "Feature|CANONICAL" ${VOPUT}.coding | egrep "HGNC|Feature" > ${VOPUT}.coding.canonical 
+ 	
+ 	echo "distinct -kc1 ${VOPUT}.coding.canonical | sort -nrk2 | distinct -kc2 " >> ${LFILE}
+ 	distinct -kc1 ExAC.r0.3.sites.snps.pass.mod.ens73.ANK.30aa.vepoutput.coding.canonical | sort -nrk2 | distinct -kc2 >> ${LFILE}
+ 	
+ 	echo "If there exists values of 2, it means that not all transcripts are unique, even with canonical."
+ 	echo "Need to check by comparing with vepinput"
+ 	
 
-	echo "NOTE: ${OFILE} can be redundant because an SNV can affect codons from different proteins from the same gene." >> ${LFILE}
+ 	
+ 	## clean up
+ 	rm vepinput.*.bed
+ 	
+ 	
+ 	
 	date >> ${LFILE}
 	
 fi
