@@ -96,6 +96,7 @@ my $domainCtr = 0;
 my %header2col;
 my %proteinID2aaPos2gPos;
 my %proteinID2geneID;
+my %proteinID2transcriptID;
 my %proteinID2strand;
 my $aaPosCtr = 1;
 my $ctr = 0;
