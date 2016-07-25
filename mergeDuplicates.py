@@ -1,29 +1,27 @@
 #!/usr/bin/env python
 
-'''
-
-USAGE:
-python mergeDuplicates.py <file> <colnum>
-
-INPUT:
-file: tab-delimited input file
-colnum: integer; 1-based
-
-This script takes in a tab-delimited file or STDIN (use '-'), and a column number and merges lines that show the same entry on that column number. It searches and merges if the other entries are the same, otherwise, it uses a ';' to merge
-
-OUTPUT:
-STDOUT
-
-Note that the order is NOT preserved; sorted in alphanumeric order by desired column
-
-E.G.
-    mergeDuplicates.py test.txt 3 > testout.txt
-
-'''
-
-#!/usr/bin/env python
 import os, sys, distutils
+import argparse
 
+parser=argparse.ArgumentParser(description='This script takes in a tab-delimited file or STDIN (use "-"), '
+                                           'and a column number and merges lines that show the same entry on '
+                                           'that column number. It searches and merges if the other entries are the '
+                                           'same, otherwise, it uses a ";" to merge',
+                               usage='mergeDuplicates.py <file> <colnum>',
+                               epilog="EXAMPLE: mergeDuplicates.py test.txt 3 > testout.txt")
+parser.add_argument('file', nargs='+', help='tab-delimited input file')
+parser.add_argument('colnum', nargs=1, default=1, help='integer; 1-based')
+parser.add_argument('output', nargs='?', type=argparse.FileType('w'), default=sys.stdout, help='STDOUT; Note that the '
+                                                                                               'order '
+                                                                                               'is NOT preserved; '
+                                                                                               'sorted in '
+                                                                                               'alphanumeric order by '
+                                                                                               'desired column')
+## help if no arguments or -h/--help
+if len(sys.argv)==1:
+    parser.print_help()
+    sys.exit(1)
+args=parser.parse_args()
 
 if __name__ == '__main__':
 
