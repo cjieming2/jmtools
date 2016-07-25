@@ -18,6 +18,8 @@ smartAApos2genomePos
   
   -e mandatory; <ensembl-file> should be tab-delimited with the following headers:
   EnsemblProteinID
+  EnsemblTranscriptID
+  EnsemblGeneID
   genomicCodingStart (1-based)
   genomicCodingEnd (stop codon usually included)
   -- MUST BE sorted by proteinID, chr, coding Start and end in this order
@@ -44,8 +46,9 @@ smartAApos2genomePos
   col6: protein aa start pos
   col7: protein aa end pos
   col8: EnsemblProtID
-  col9: EnsemblGeneID
-  col10: strand (1:fwd / -1:rev)
+  col9: EnsemblTranscriptID
+  col10: EnsemblGeneID
+  col11: strand (1:fwd / -1:rev)
   
   
   Example:
@@ -84,7 +87,7 @@ open (ENSEM, $ensemblFile) || die "Cannot open $ensemblFile: $!";
 #open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
 
 ## output header
-print "chr\tstart\tend\taastart-aaend\tsmart\tprotaastart\tprotaaend\tEnsemblProtID\tEnsemblGeneID\tstrand\n";
+print "chr\tstart\tend\taastart-aaend\tsmart\tprotaastart\tprotaaend\tEnsemblProtID\tEnsemblTranscriptID\tEnsemblGeneID\tstrand\n";
 
 
 # variables
@@ -93,6 +96,7 @@ my $domainCtr = 0;
 my %header2col;
 my %proteinID2aaPos2gPos;
 my %proteinID2geneID;
+my %proteinID2transcriptID;
 my %proteinID2strand;
 my $aaPosCtr = 1;
 my $ctr = 0;
@@ -107,7 +111,7 @@ LINE: while (<ENSEM>)
 	
 	if($headerProcessed == 0)
 	{
-		ITER: for my $desired ('EnsemblGeneID', 'EnsemblProteinID', 'EnsemblExonID', 
+		ITER: for my $desired ('EnsemblGeneID', 'EnsemblTranscriptID', 'EnsemblProteinID', 'EnsemblExonID', 
 													 'chr', 'genomicCodingStart', 'genomicCodingEnd',
 													 'strand')
 		{
@@ -127,6 +131,7 @@ LINE: while (<ENSEM>)
 	else
 	{	
 		my $geneid      = $fields[$header2col{'EnsemblGeneID'}];
+		my $transcriptid= $fields[$header2col{'EnsemblTranscriptID'}];
 		my $proteinid   = $fields[$header2col{'EnsemblProteinID'}];
 		my $gStart      = $fields[$header2col{'genomicCodingStart'}];  ## 1based
 		my $gEnd        = $fields[$header2col{'genomicCodingEnd'}];
@@ -163,6 +168,7 @@ LINE: while (<ENSEM>)
 			{
 				$proteinID2aaPos2gPos{$proteinid}{$aaPosCtr}{$ctr} = $i;
 				$proteinID2geneID{$proteinid} = $geneid;
+				$proteinID2transcriptID{$proteinid} = $transcriptid;
 				$proteinID2strand{$proteinid} = $strand;
 				$ctr++;
 				if($ctr == 3)
@@ -236,7 +242,8 @@ while(<INPUT>)
 		my $endaa      = $fields2[$header2col2{'end'}];
 		my $proteinID  = $fields2[$header2col2{'EnsemblProteinID'}];
 		my $annotation = $smartID . "\t" . $startaa . "\t" . $endaa . "\t" . $proteinID .
-		                   "\t" . $proteinID2geneID{$proteinID} . "\t" . $proteinID2strand{$proteinID};
+		                   "\t" . $proteinID2transcriptID{$proteinid} . "\t" . $proteinID2geneID{$proteinID} .
+		                   "\t" . $proteinID2strand{$proteinID};
 		
 		my $prevaa = 0;
 		my $newline = 0;
