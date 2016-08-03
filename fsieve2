@@ -2,7 +2,7 @@
 
 use warnings;
 use strict;
-use fralib;
+#use fralib;
 use Getopt::Long;
 use File::Basename;
 use Pod::Usage;
@@ -35,7 +35,9 @@ fsieve2
 
  It now allows user to choose column in the input file for sieving and also allows STDIN (for piping) and output as STDOUT.
  The column for sieving in the sieving file remains as the first column.
-       
+
+Credit:
+  This script is adapted from the script written by Adrian Tan, when he was at the Genome Institute of Singapore, as part of his package fraTools (available on GitHub). He is currently now at University of Michigan. You can check out his github page for fraTools: https://github.com/atks/fratools
 =head1 DESCRIPTION
 
 =cut

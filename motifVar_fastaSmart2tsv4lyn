@@ -2,7 +2,6 @@
 
 use warnings;
 use strict;
-use fralib;
 use jmlib;
 use File::Basename;
 use Getopt::Long;
