@@ -2,7 +2,6 @@
 
 use warnings;
 use strict;
-use fralib;
 use File::Basename;
 use Getopt::Long;
 use Pod::Usage;
@@ -23,16 +22,16 @@ motifVarFastaGrab
   <input tsv>
   this tab-delimited file MUST contain the following fields in header (output 
   of motifVarSmartAApos2genomePos/_wrap with motif info):
-  chr 					 = chromosome
-  protaastart    = residue start residue position in protein 
-  protaaend      = residue start end position in protein 
+  chr 					  = chromosome
+  protaastart     = residue start residue position in protein 
+  protaaend       = residue start end position in protein 
   								(seq grabbed based on these; 1-based)
-  smart          = smartID of domain
-  EnsemblProtID  = Ensembl protein ID
-  EnsemblGeneID  = Ensembl gene ID
-  DOMAIN         = domain name
-  DEFINITION     = domain name in words
-  strand				 = strand information (1/-1)
+  smart           = smartID of domain
+  EnsemblProteinID= Ensembl protein ID
+  EnsemblGeneID   = Ensembl gene ID
+  DOMAIN          = domain name
+  DEFINITION      = domain name in words
+  strand				  = strand information (1/-1)
   
 This takes in a fasta and a tab-delimited file. Using the residue position in the tsv file,
 grab the sequences off the FASTA (something like FastaToBed in bedtools but this is 
@@ -48,7 +47,7 @@ V inefficient now - printing has a number of loops
 	col2=smart
 	col3=protaastart (1-based)
 	col4=protaaend 
-	col5=EnsemblProtID
+	col5=EnsemblProteinID
 	col6=EnsemblGeneID
 	col7=DOMAIN
 	col8=DEFINITION
@@ -173,7 +172,7 @@ while (<INPUT>)
 	
 	if($headerProcessed == 0)
 	{
-		LINE: for my $desired ('EnsemblGeneID', 'EnsemblProtID', 'protaastart', 'protaaend', 
+		LINE: for my $desired ('EnsemblGeneID', 'EnsemblTranscriptID', 'EnsemblProteinID', 'protaastart', 'protaaend', 
 													 'chr', 'DOMAIN', 'DEFINITION', 'smart', 'strand')
 		{
 			for (my $i=0;$i<@fields;$i++)
@@ -194,13 +193,14 @@ while (<INPUT>)
 		my $chr = $fields[$header2col{'chr'}];
 		$chr =~ s/chr//g;
 		
-		my $protID = $fields[$header2col{'EnsemblProtID'}];
+		my $protID = $fields[$header2col{'EnsemblProteinID'}];
 		
 		my $annot = $chr."\t".
 											$fields[$header2col{'smart'}]."\t".
 											$fields[$header2col{'protaastart'}]."\t".
 											$fields[$header2col{'protaaend'}]."\t".
 											$protID."\t".
+											$fields[$header2col{'EnsemblTranscriptID'}]."\t".
 											$fields[$header2col{'EnsemblGeneID'}]."\t".
 											$fields[$header2col{'strand'}]."\t".
 											$fields[$header2col{'DOMAIN'}]."\t".
@@ -211,7 +211,7 @@ while (<INPUT>)
 		
 #		print "$chr|$protID|$annot|$aapos\n"; ##debug
 
-		## this is intentioanlly placed here so that $annot remains untouched by this naming; remains X and Y
+		## this is intentionally placed here so that $annot remains untouched by this naming; remains X and Y
 		if($chr eq 'X')
 		{
 			$chr = 23;
@@ -243,7 +243,7 @@ while (<INPUT>)
 ## printing
 
 ## header
-print "chr\tsmart\tprotaastart\tprotaaend\tEnsemblProtID\tEnsemblGeneID\tstrand\tDOMAIN\tDEFINITION\tmotifSize\tsequence\n";
+print "chr\tsmart\tprotaastart\tprotaaend\tEnsemblProteinID\tEnsemblTranscriptID\tEnsemblGeneID\tstrand\tDOMAIN\tDEFINITION\tmotifSize\tsequence\n";
 
 ## lines
 for my $chrom (sort {$a <=> $b} keys %protID2row)

@@ -15,7 +15,6 @@ blosum
 
  -h help
  
- -b blosum file; space-delimited; first char is "#" to signify header
  -c column number (1-based) in which the information about Condel, SIFT and Polyphen reside, 
     assuming all are in a single column separated by ';'. 
     E.g. Condel=neutral(0.003);PolyPhen=benign(0);SIFT=tolerated(0.64)

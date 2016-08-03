@@ -100,7 +100,7 @@ LINE: while (<ENSEM>)
 	
 	if($headerProcessed == 0)
 	{
-		ITER: for my $desired ('EnsemblGeneID', 'EnsemblProteinID', 'EnsemblExonID', 
+		ITER: for my $desired ('EnsemblGeneID', 'EnsemblTranscriptID', 'EnsemblProteinID', 'EnsemblExonID', 
 													 'chr', 'genomicCodingStart', 'genomicCodingEnd',
 													 'strand')
 		{
@@ -120,6 +120,7 @@ LINE: while (<ENSEM>)
 	else
 	{	
 		my $geneid      = $fields[$header2col{'EnsemblGeneID'}];
+		my $transcriptid= $fields[$header2col{'EnsemblTranscriptID'}];
 		my $proteinid   = $fields[$header2col{'EnsemblProteinID'}];
 		my $gStart      = $fields[$header2col{'genomicCodingStart'}];  ## 1based
 		my $gEnd        = $fields[$header2col{'genomicCodingEnd'}];
@@ -190,7 +191,7 @@ close(ENSEM);
 ## input smart domain file
 my $ifile = $ARGV[0];
 open (INPUT, $ifile) || die "Cannot open $ifile: $!";
-##print "chr\tstart\tend\tsmart#startaa#endaa#EnsemblProtID#EnsemblGeneID#strand#DOMAIN#DEFINITION#sequence#aaNum#resPos\n";
+##print "chr\tstart\tend\tsmart#startaa#endaa#EnsemblProteinID#EnsemblGeneID#strand#DOMAIN#DEFINITION#sequence#aaNum#resPos\n";
 
 # variables
 my $chr2 = 0;
@@ -207,7 +208,7 @@ while(<INPUT>)
 	
 	if($headerProcessed2 == 0)
 	{
-		ITER: for my $desired2 ('chr', 'smart', 'protaastart', 'protaaend', 'EnsemblProtID')
+		ITER: for my $desired2 ('chr', 'smart', 'protaastart', 'protaaend', 'EnsemblProteinID')
 		{
 			for (my $i=0;$i<@fields2;$i++)
 			{
@@ -228,7 +229,7 @@ while(<INPUT>)
 		my $smartID    = $fields2[$header2col2{'smart'}];
 		my $startaa    = $fields2[$header2col2{'protaastart'}];
 		my $endaa      = $fields2[$header2col2{'protaaend'}];
-		my $proteinID  = $fields2[$header2col2{'EnsemblProtID'}];
+		my $proteinID  = $fields2[$header2col2{'EnsemblProteinID'}];
 		
 		my $annotation = join("#",@fields2[1 .. $#fields2]);
 		

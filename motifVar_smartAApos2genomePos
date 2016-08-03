@@ -87,7 +87,7 @@ open (ENSEM, $ensemblFile) || die "Cannot open $ensemblFile: $!";
 #open (OUTPUT, ">$ofile") || die "Cannot open $ofile: $!";
 
 ## output header
-print "chr\tstart\tend\taastart-aaend\tsmart\tprotaastart\tprotaaend\tEnsemblProtID\tEnsemblTranscriptID\tEnsemblGeneID\tstrand\n";
+print "chr\tstart\tend\taastart-aaend\tsmart\tprotaastart\tprotaaend\tEnsemblProteinID\tEnsemblTranscriptID\tEnsemblGeneID\tstrand\n";
 
 
 # variables
@@ -152,6 +152,7 @@ LINE: while (<ENSEM>)
 			{
 				$proteinID2aaPos2gPos{$proteinid}{$aaPosCtr}{$ctr} = $i;
 				$proteinID2geneID{$proteinid} = $geneid;
+				$proteinID2transcriptID{$proteinid} = $transcriptid;
 				$proteinID2strand{$proteinid} = $strand;
 				$ctr++;
 			
@@ -241,9 +242,9 @@ while(<INPUT>)
 		my $startaa    = $fields2[$header2col2{'start'}];
 		my $endaa      = $fields2[$header2col2{'end'}];
 		my $proteinID  = $fields2[$header2col2{'EnsemblProteinID'}];
-		my $annotation = $smartID . "\t" . $startaa . "\t" . $endaa . "\t" . $proteinID .
-		                   "\t" . $proteinID2transcriptID{$proteinid} . "\t" . $proteinID2geneID{$proteinID} .
-		                   "\t" . $proteinID2strand{$proteinID};
+		my $annotation = $smartID . "\t" . $startaa . "\t" . $endaa . "\t" . $proteinID . 
+											 "\t" .$proteinID2transcriptID{$proteinID} .
+		                   "\t" . $proteinID2geneID{$proteinID} . "\t" . $proteinID2strand{$proteinID};
 		
 		my $prevaa = 0;
 		my $newline = 0;

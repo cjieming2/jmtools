@@ -1,4 +1,4 @@
-#!/usr/bin/env perl
+#!/usr/bin/perl
 
 use strict;
 use warnings;
@@ -27,7 +27,7 @@ while (my $stable_id = <$INPUT>) {
 
   my $gene = $translation->transcript->get_Gene();
 
-  printf $OUTPUT ">%s %s %s\n", $gene->seq_region_name, $gene->stable_id, $stable_id;
+  printf $OUTPUT ">%s|%s|%s\n", $gene->seq_region_name, $gene->stable_id, $stable_id;
 
   my $sequence = $translation->seq;
   my $start = 0;

@@ -2,15 +2,13 @@
 
 use warnings;
 use strict;
-use fralib;
-use jmlib;
 use File::Basename;
 use Getopt::Long;
 use Pod::Usage;
 
 =head1 NAME
 
-tsvseq2consensus4lyn
+msa2consensus4lyn
 
 =head1 SYNOPSIS
 
@@ -18,6 +16,7 @@ tsvseq2consensus4lyn
 
   -h help
   -c required; the column number (1-based) for the sequence to be aligned. The script removes any '_' in this column.
+  -n optional; by default, it uses the filename of the input (before '.'); you can specifiy your own
   -i optional; default = 0; if 1, prints raw counts
   
   This script is currently tailored for use with SMART-generated tsv file information, for Regan Lab, to generate global propensities and consensus information. 
@@ -41,7 +40,7 @@ tsvseq2consensus4lyn
 									'H'=>0.02652,'M'=>0.02074,
 									'W'=>0.01129
    
-   Also the human proteome calculation has been included:
+   Also the human proteome calculation has been included (Jan 2012):
    'L'=>0.09975,'A'=>0.07013,'S'=>0.08326,'V'=>0.05961,'G'=>0.06577,
 									'K'=>0.05723,'T'=>0.05346,'I'=>0.04332,'E'=>0.07096,
 									'P'=>0.06316,'R'=>0.05650,'D'=>0.04728,								
@@ -88,11 +87,12 @@ my $help;
 my $ifile;
 my $col;
 my $printrawcounts = 0;
+my $name = "ninjaturtlescowabunga";
 
 #initialize options
 Getopt::Long::Configure ('bundling');
 
-if(!GetOptions ('h'=>\$help, 'c=i'=>\$col, 'i=i'=>\$printrawcounts) || scalar(@ARGV)!=1)
+if(!GetOptions ('h'=>\$help, 'c=i'=>\$col, 'i=i'=>\$printrawcounts, 'n=s'=>\$name) || scalar(@ARGV)!=1)
 {
     if ($help)
     {
@@ -110,7 +110,12 @@ $ifile = $ARGV[0];
 open (IN, $ifile) || die "Cannot open $ifile: $!";
 
 ## output file
-my($name, $path, $ext) = fileparse($ifile, '\..*');
+if($name eq "ninjaturtlescowabunga")
+{  
+	my($name1, $path, $ext) = fileparse($ifile, '\..*');  
+	$name = $name1;
+}
+
 my $globalfile = "$name.global";
 my $rfreqfile  = "$name.rfreq";
 my $refile     = "$name.re";
