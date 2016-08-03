@@ -6,7 +6,9 @@ import argparse
 parser=argparse.ArgumentParser(description='This script takes in a tab-delimited file or STDIN (use "-"), '
                                            'and a column number and merges lines that show the same entry on '
                                            'that column number. It searches and merges if the other entries are the '
-                                           'same, otherwise, it uses a ";" to merge',
+                                           'same, otherwise, it uses a ";" to merge. Note also to mind the header if '
+                                           'there is one - can do: sed 1d fileX | mergeDuplicates.py - 1 | cat <(head '
+                                           '-1 fileX) -',
                                usage='mergeDuplicates.py <file> <colnum>',
                                epilog="EXAMPLE: mergeDuplicates.py test.txt 3 > testout.txt")
 parser.add_argument('file', nargs='+', help='tab-delimited input file')
