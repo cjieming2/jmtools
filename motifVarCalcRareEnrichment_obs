@@ -1,0 +1,284 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use POSIX;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+motifVarCalcRareEnrichment
+
+=head1 SYNOPSIS
+
+ motifVarCalcRareEnrichment [options] <tsv>
+
+  -h help
+  -f rare freq definition; default 0.005
+  
+  tsv file
+  INPUT: columns with headers
+  maf, NS, AC
+  chr, start, end, EnsemblGeneID, resNum -- used as unique key, so each resNum has independent counts
+  
+  this script uses AC=1 to filter off singletons
+  
+  note that this script looks for 'synonymous' and the rest are 'nonsynonymous'.
+  -- $NS ne 'synonymous' && $NS ne 'SYNONYMOUS_CODING' && $NS ne 'SYNONYMOUS_CODING,SPLICE_SITE'
+  
+  OUTPUT:
+  col1: resNum
+  col2: totVar
+  col3: totVar.noS - noSingle
+  col4: numRare
+  col5: numRare.noS
+  col6: P.rare.noS
+  col7: ratio.comm2rare
+  col8: num.NS
+  col9: num.NS.noS
+  col10: P.NS.noS
+  col11: numRareNS
+  col12: numRareNS.noS
+  col13: P.RareNS.noS
+  col14: numRareS
+  col15: numRareS.noS
+  col16: numCommNS
+  col17: numCommNS.noS
+  col18: numCommS
+  col19: numCommS.noS
+  
+  Example:
+     motifVarCalcRareEnrichment -f 0.005 1KG.snps.nonmono.smartDomain2gPos.TPR.34aa.sorted.txt > 1KG.snps.nonmono.smartDomain2gPos.TPR.34aa.sorted.enrich
+  
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $frq = 0.005;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('f=f'=>\$frq,'h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+## input 
+my $ifile = $ARGV[0];
+open (INPUT, $ifile) || die "Cannot open $ifile: $!";
+
+# variables
+my ($resNum, $maf, $NS) = (0);
+my %totVar;
+my %numRare;
+my %numNS;
+my %numRareNS;
+my $max = 0;
+my $headerProcessed2 = 0;
+my %header2col2;
+my %KEYY;
+
+# start loop
+while(<INPUT>)
+{
+	s/\r?\n?$//;
+	my @fields2 = split(/\t/, $_);
+	chomp @fields2; 
+	
+	if($headerProcessed2 == 0)
+	{
+		ITER: for my $desired2 ('AC', 'resNum', 'maf', 'NS', 'chr', 'start', 'end', 'EnsemblGeneID')
+		{
+			for (my $i=0;$i<@fields2;$i++)
+			{
+				if($fields2[$i] eq $desired2)
+				{
+					$header2col2{$desired2} = $i;
+					next ITER;
+				}
+			}
+			die("$desired2 can't be in the file:$!");
+		} 
+		
+		$headerProcessed2 = 1;
+	} ## if first row header
+	else
+	{
+		my $resNum = $fields2[$header2col2{'resNum'}];
+		my $maf    = $fields2[$header2col2{'maf'}];
+		my $NS     = $fields2[$header2col2{'NS'}];
+		my $chr 	 = $fields2[$header2col2{'chr'}];
+		my $start  = $fields2[$header2col2{'start'}];
+		my $end    = $fields2[$header2col2{'end'}];
+		my $gene   = $fields2[$header2col2{'EnsemblGeneID'}];
+		my $ac     = $fields2[$header2col2{'AC'}];
+		
+		my $keyy   = "$chr-$start-$end-$gene-$resNum";
+		
+		if($max < $resNum)
+		{
+			$max = $resNum;
+		}
+		
+		# if hash doesnt exist, create
+		if(!exists($KEYY{$keyy}))
+		{
+			$KEYY{$keyy} = 1;
+			# is it a singleton, allele count = exactly 1
+			if($ac == 1)
+			{
+				if(!exists($totVar{$resNum}{'Sin'})){	$totVar{$resNum}{'Sin'} = 1;	}
+				else{	$totVar{$resNum}{'Sin'}++;	}
+				
+				if(!exists($numRare{$resNum}{'Sin'})){ $numRare{$resNum}{'Sin'} = 1; }
+				else{	$numRare{$resNum}{'Sin'}++;	}
+				
+				# is it NS
+				if(($NS ne 'synonymous') && ($NS ne 'SYNONYMOUS_CODING') && ($NS ne 'SYNONYMOUS_CODING,SPLICE_SITE'))
+				{
+					if(!exists($numNS{$resNum}{'Sin'})){	$numNS{$resNum}{'Sin'} = 1;		}
+					else{		$numNS{$resNum}{'Sin'}++;		}
+					
+					if(!exists($numRareNS{$resNum}{'Sin'})){  $numRareNS{$resNum}{'Sin'} = 1; 	}
+					else{		$numRareNS{$resNum}{'Sin'}++;		}
+				}
+			}
+			else # not a singleton
+			{
+				if(!exists($totVar{$resNum}{'noSin'})){	$totVar{$resNum}{'noSin'} = 1;	}
+				else{	$totVar{$resNum}{'noSin'}++;	}
+				
+				# if rare, maf <= 0.005
+				if($maf <= $frq)
+				{
+					if(!exists($numRare{$resNum}{'noSin'})){ $numRare{$resNum}{'noSin'} = 1; }
+					else{	$numRare{$resNum}{'noSin'}++;	}
+					
+					if(($NS ne 'synonymous') && ($NS ne 'SYNONYMOUS_CODING') && ($NS ne 'SYNONYMOUS_CODING,SPLICE_SITE'))
+					{
+						if(!exists($numRareNS{$resNum}{'noSin'})){  $numRareNS{$resNum}{'noSin'} = 1; 	}
+						else{		$numRareNS{$resNum}{'noSin'}++;		}
+					}
+				}
+				
+				# is it NS
+				if(($NS ne 'synonymous') && ($NS ne 'SYNONYMOUS_CODING') && ($NS ne 'SYNONYMOUS_CODING,SPLICE_SITE'))
+				{
+					if(!exists($numNS{$resNum}{'noSin'})){	$numNS{$resNum}{'noSin'} = 1;		}
+					else{		$numNS{$resNum}{'noSin'}++;		}
+				}
+			}
+		}
+		else # if exist
+		{
+			## skip line
+		}
+	}
+	
+}
+
+## print
+# header
+print "resNum\t".
+"totVar\t".
+"totVar.noS\t".
+"numRare\t".
+"numRare.noS\t".
+"P.rare.noS\t".
+"ratio.comm2rare\t".
+"num.NS\t".
+"num.NS.noS\t".
+"P.NS.noS\t".
+"numRareNS\t".
+"numRareNS.noS\t".
+"P.RareNS.noS\t".
+"numRareS\t".
+"numRareS.noS\t".
+"numCommNS\t".
+"numCommNS.noS\t".
+"numCommS\t".
+"numCommS.noS\n";
+
+my $pseudo0 = 0.00001;
+for (my $i=1; $i<=$max; $i++)
+{
+	# set to pseudo 0
+	if(!exists($totVar{$i}{'noSin'}))
+	{
+		$totVar{$i}{'noSin'} = $pseudo0;
+	}
+	if(!exists($numRare{$i}{'noSin'}))
+	{
+		$numRare{$i}{'noSin'} = $pseudo0;
+	}
+	
+	# non-denominators
+	my $zero = 0;
+	if(!exists($totVar{$i}{'Sin'}))
+	{
+		$totVar{$i}{'Sin'} = $zero;
+	}
+		
+	if(!exists($numRare{$i}{'Sin'}))
+	{
+		$numRare{$i}{'Sin'} = $zero;
+	}
+	
+	if(!exists($numNS{$i}{'noSin'}))
+	{
+		$numNS{$i}{'noSin'} = $zero;
+	}
+	
+	if(!exists($numNS{$i}{'Sin'}))
+	{
+		$numNS{$i}{'Sin'} = $zero;
+	}
+	
+	if(!exists($numRareNS{$i}{'noSin'}))
+	{
+		$numRareNS{$i}{'noSin'} = $zero;
+	}
+	
+	if(!exists($numRareNS{$i}{'Sin'}))
+	{
+		$numRareNS{$i}{'Sin'} = $zero;
+	}
+	
+	# print
+	print "$i\t";
+	printf "%1.f\t", $totVar{$i}{'Sin'} + floor($totVar{$i}{'noSin'});
+	printf "%1.f\t", floor($totVar{$i}{'noSin'});
+	printf "%1.f\t", $numRare{$i}{'Sin'} + $numRare{$i}{'noSin'};
+	printf "%1.f\t", floor($numRare{$i}{'noSin'});
+	printf "%.3f\t", floor($numRare{$i}{'noSin'}) / $totVar{$i}{'noSin'};
+	printf "%.3f\t", (floor($totVar{$i}{'noSin'}) - floor($numRare{$i}{'noSin'})) / $numRare{$i}{'noSin'};
+	printf "%1.f\t", $numNS{$i}{'Sin'} + $numNS{$i}{'noSin'};
+	printf "%1.f\t", $numNS{$i}{'noSin'};
+	printf "%.3f\t", $numNS{$i}{'noSin'} / $totVar{$i}{'noSin'};
+	printf "%1.f\t", $numRareNS{$i}{'Sin'} + $numRareNS{$i}{'noSin'};
+	printf "%1.f\t", $numRareNS{$i}{'noSin'};
+	printf "%.3f\t", $numRareNS{$i}{'noSin'} / $totVar{$i}{'noSin'};
+	printf "%1.f\t", ($numRare{$i}{'Sin'}+floor($numRare{$i}{'noSin'})) - ($numRareNS{$i}{'Sin'}+$numRareNS{$i}{'noSin'});  		## numRareS.Sin
+	printf "%1.f\t", floor($numRare{$i}{'noSin'}) - $numRareNS{$i}{'noSin'};  ## numRareS.noSin
+	printf "%1.f\t", ($numNS{$i}{'Sin'}+$numNS{$i}{'noSin'}) - ($numRareNS{$i}{'Sin'}+$numRareNS{$i}{'noSin'});  			## numCommNS.Sin
+	printf "%1.f\t", $numNS{$i}{'noSin'} - $numRareNS{$i}{'noSin'};  	## numCommNS.noSin
+	printf "%1.f\t", (($totVar{$i}{'Sin'}+floor($totVar{$i}{'noSin'})) - ($numNS{$i}{'Sin'}+$numNS{$i}{'noSin'})) - (($numRare{$i}{'Sin'}+floor($numRare{$i}{'noSin'})) - ($numRareNS{$i}{'Sin'}+$numRareNS{$i}{'noSin'}));  ## numCommS.Sin
+	printf "%1.f\n", (floor($totVar{$i}{'noSin'}) - $numNS{$i}{'noSin'}) - (floor($numRare{$i}{'noSin'}) - $numRareNS{$i}{'noSin'});  ## numCommS.noSin
+	
+	
+	
+}
+close(INPUT);
+	
