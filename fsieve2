@@ -38,6 +38,7 @@ fsieve2
 
 Credit:
   This script is adapted from the script written by Adrian Tan, when he was at the Genome Institute of Singapore, as part of his package fraTools (available on GitHub). He is currently now at University of Michigan. You can check out his github page for fraTools: https://github.com/atks/fratools
+
 =head1 DESCRIPTION
 
 =cut
@@ -269,11 +270,13 @@ else
 close(IN);
 close(OUT);
 
+my $colcol = $col2field + 1;
+
 print LOG <<SUMMARY;
 Sieve File Element No : $sieveFileElementNo
 File Element No       : $fileElementNo
 Sieved Element No     : $sievedElementNo
-ColNum		      : $col2field
+ColNum		      : $colcol
 SUMMARY
 
 close(LOG);
