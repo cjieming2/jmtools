@@ -45,14 +45,15 @@ if __name__ == '__main__':
 
     # Drop table if it already exist using execute() method.
     tablename = "dz_risk_" + args.s
-    cursor.execute("DROP TABLE IF EXISTS `%s`" % (tablename))
-    warnings.filterwarnings('ignore', 'unknown table') ## otherwise will generate an annoying warning
+    droptable = "DROP TABLE IF EXISTS " + tablename 
+    cursor.execute(droptable)
+    #warnings.filterwarnings('ignore', 'unknown table') ## otherwise will generate an annoying warning
 
     ## Create table as per requirement
-    sql = """CREATE TABLE `%s` (
+    sql = "CREATE TABLE " + tablename + """ (
              sample_ID  VARCHAR(20) NOT NULL,
              dbSNP  VARCHAR(20),
-             genotype CHAR(2) )""" % (tablename)
+             genotype CHAR(2) ) """ 
 
     cursor.execute(sql)
 
@@ -121,8 +122,8 @@ if __name__ == '__main__':
 
             ## insert data
             try:
-                insertdata = """INSERT INTO `%s` VALUES (%s %s %s)""" % (arg.s, rsID, genotype)
-                cursor.execute(insertdata)
+                insertdata = "INSERT INTO " + tablename + " VALUES (%s, %s, %s)"
+                cursor.execute(insertdata, (args.s, rsID, genotype))
                 db.commit()
             except:
                 db.rollback()
