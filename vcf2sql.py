@@ -46,6 +46,7 @@ if __name__ == '__main__':
     # Drop table if it already exist using execute() method.
     tablename = "dz_risk_" + args.s
     cursor.execute("DROP TABLE IF EXISTS `%s`" % (tablename))
+    warnings.filterwarnings('ignore', 'unknown table') ## otherwise will generate an annoying warning
 
     ## Create table as per requirement
     sql = """CREATE TABLE `%s` (
@@ -118,7 +119,14 @@ if __name__ == '__main__':
             else:
                 logfile.write('At position ' + snp + ', ' + 'no matches for regex \"' + args.r + '\"\n')
 
-            print args.s + '\t' + rsID + '\t' + genotype
+            ## insert data
+            try:
+                insertdata = """INSERT INTO `%s` VALUES (%s %s %s)""" % (arg.s, rsID, genotype)
+                cursor.execute(insertdata)
+                db.commit()
+            except:
+                db.rollback()
+            # print args.s + '\t' + rsID + '\t' + genotype ## debug
 
     db.close()
     logfile.close()
