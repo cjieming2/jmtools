@@ -96,8 +96,8 @@ if __name__ == '__main__':
             ## the regex finds the first (or more) ';' and takes whatever's between the FIRST ';' (it rejects all
             # other ';' and the args.r
             myregex = re.search(re.escape(args.r) + '([^;$]+)', info, re.I | re.M)
-            print myregex ## debug
-            
+            #print myregex ## debug
+
             if myregex:
                 rsID = myregex.group(1)
 
@@ -120,17 +120,17 @@ if __name__ == '__main__':
                     ## some of these haploid genotype are not in Y chr
                     genotype = alleles[ int(subjinfo[0]) ]
 
+                ## insert data
+                # try:
+                #     insertdata = """INSERT INTO `%s` VALUES (%s %s %s)""" % (arg.s, rsID, genotype)
+                #     cursor.execute(insertdata)
+                #     db.commit()
+                # except:
+                #     db.rollback()
+                print args.s + '\t' + rsID + '\t' + genotype  ## debug
+
             else:
                 logfile.write('At position ' + snp + ', ' + 'no matches for regex \"' + args.r + '\"\n')
-
-            ## insert data
-            # try:
-            #     insertdata = """INSERT INTO `%s` VALUES (%s %s %s)""" % (arg.s, rsID, genotype)
-            #     cursor.execute(insertdata)
-            #     db.commit()
-            # except:
-            #     db.rollback()
-            print args.s + '\t' + rsID + '\t' + genotype ## debug
 
     db.close()
     logfile.close()
