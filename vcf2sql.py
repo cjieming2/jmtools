@@ -93,10 +93,10 @@ if __name__ == '__main__':
             ## use re.escape to put to escapify the special char
             ## find rsID using the dbSNP -i info option
             ## re.I ignores case and re.M multiline
-            myregex = re.search(re.escape(args.r) + '(.*);', info, re.I | re.M)
+            myregex = re.search(re.escape(args.r) + '(.*)(;|$)', info, re.I | re.M)
 
             if myregex:
-                rsID = myregex.group(1)
+                rsID = myregex.group(2)
 
                 ## genotype
                 subjinfo = subj.rstrip().split(':', 6)
