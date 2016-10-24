@@ -66,7 +66,7 @@ if __name__ == '__main__':
         lines = f1.xreadlines()
 
     for line in lines:
-
+        
         # print line.rstrip() ## debug
         ## if second character == "##" skip
         if (line[0] == "#") and (line[1] == "#"):
@@ -95,7 +95,7 @@ if __name__ == '__main__':
             ## re.I ignores case and re.M multiline
             ## the regex finds the first (or more) ';' and takes whatever's between the FIRST ';' (it rejects all
             # other ';' and the args.r
-            myregex = re.search(re.escape(args.r) + '([^;]+)', info, re.I | re.M)
+            myregex = re.search(re.escape(args.r) + '([^;$]+)', info, re.I | re.M)
 
             if myregex:
                 rsID = myregex.group(1)
