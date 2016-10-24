@@ -45,14 +45,15 @@ if __name__ == '__main__':
 
     # Drop table if it already exist using execute() method.
     tablename = "dz_risk_" + args.s
-    cursor.execute("DROP TABLE IF EXISTS `%s`" % (tablename))
-    warnings.filterwarnings('ignore', 'unknown table') ## otherwise will generate an annoying warning
+    droptable = "DROP TABLE IF EXISTS " + tablename 
+    cursor.execute(droptable)
+    #warnings.filterwarnings('ignore', 'unknown table') ## otherwise will generate an annoying warning
 
     ## Create table as per requirement
-    sql = """CREATE TABLE `%s` (
+    sql = "CREATE TABLE " + tablename + """ (
              sample_ID  VARCHAR(20) NOT NULL,
              dbSNP  VARCHAR(20),
-             genotype CHAR(2) )""" % (tablename)
+             genotype CHAR(2) ) """ 
 
     cursor.execute(sql)
 
@@ -120,6 +121,7 @@ if __name__ == '__main__':
                 logfile.write('At position ' + snp + ', ' + 'no matches for regex \"' + args.r + '\"\n')
 
             ## insert data
+<<<<<<< HEAD
             # try:
             #     insertdata = """INSERT INTO `%s` VALUES (%s %s %s)""" % (arg.s, rsID, genotype)
             #     cursor.execute(insertdata)
@@ -127,6 +129,15 @@ if __name__ == '__main__':
             # except:
             #     db.rollback()
             print args.s + '\t' + rsID + '\t' + genotype ## debug
+=======
+            try:
+                insertdata = "INSERT INTO " + tablename + " VALUES (%s, %s, %s)"
+                cursor.execute(insertdata, (args.s, rsID, genotype))
+                db.commit()
+            except:
+                db.rollback()
+            # print args.s + '\t' + rsID + '\t' + genotype ## debug
+>>>>>>> 1555257d42012c95d9c5798f1bbefb4a6895e784
 
     db.close()
     logfile.close()
