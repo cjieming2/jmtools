@@ -96,7 +96,7 @@ if __name__ == '__main__':
             myregex = re.search(re.escape(args.r) + '(.*);', info, re.I | re.M)
 
             if myregex:
-                rsID = myregex.group(2)
+                rsID = myregex.group(1)
 
                 ## genotype
                 subjinfo = subj.rstrip().split(':', 6)
