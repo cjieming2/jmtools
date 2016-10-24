@@ -123,13 +123,13 @@ if __name__ == '__main__':
                 logfile.write('At position ' + snp + ', ' + 'no matches for regex \"' + args.r + '\"\n')
 
             ## insert data
-            try:
-                insertdata = """INSERT INTO `%s` VALUES (%s %s %s)""" % (arg.s, rsID, genotype)
-                cursor.execute(insertdata)
-                db.commit()
-            except:
-                db.rollback()
-            # print args.s + '\t' + rsID + '\t' + genotype ## debug
+            # try:
+            #     insertdata = """INSERT INTO `%s` VALUES (%s %s %s)""" % (arg.s, rsID, genotype)
+            #     cursor.execute(insertdata)
+            #     db.commit()
+            # except:
+            #     db.rollback()
+            print args.s + '\t' + rsID + '\t' + genotype ## debug
 
     db.close()
     logfile.close()
