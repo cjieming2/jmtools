@@ -120,14 +120,14 @@ if __name__ == '__main__':
                     ## some of these haploid genotype are not in Y chr
                     genotype = alleles[ int(subjinfo[0]) ]
 
-                ## insert data
-                # try:
-                #     insertdata = """INSERT INTO `%s` VALUES (%s %s %s)""" % (args.s, rsID, genotype)
-                #     cursor.execute(insertdata)
-                #     db.commit()
-                # except:
-                #     db.rollback()
-                print args.s + '\t' + rsID + '\t' + genotype  ## debug
+                # insert data
+                try:
+                    insertdata = """INSERT INTO `%s` VALUES (%s %s %s)""" % (tablename, args.s, rsID, genotype)
+                    cursor.execute(insertdata)
+                    db.commit()
+                except:
+                    db.rollback()
+                # print args.s + '\t' + rsID + '\t' + genotype  ## debug
 
             else:
                 logfile.write('At position ' + snp + ', ' + 'no matches for regex \"' + args.r + '\"\n')
