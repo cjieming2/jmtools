@@ -122,8 +122,8 @@ if __name__ == '__main__':
 
                 # insert data
                 try:
-                    insertdata = "INSERT INTO %s VALUES (%s %s %s)"
-                    cursor.execute(insertdata, (tablename, args.s, rsID, genotype))
+                    insertdata = "INSERT INTO %s VALUES (%s %s %s)" , (tablename, args.s, rsID, genotype)
+                    cursor.execute(insertdata)
                     db.commit()
                 except:
                     db.rollback()
