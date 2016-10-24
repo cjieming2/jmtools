@@ -123,6 +123,7 @@ if __name__ == '__main__':
                 # insert data
                 try:
                     insertdata = "INSERT INTO " + tablename + " VALUES (%s %s %s)"
+                    print insertdata
                     cursor.execute(insertdata, (args.s, rsID, genotype))
                     db.commit()
                 except:
