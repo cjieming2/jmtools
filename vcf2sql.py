@@ -93,7 +93,9 @@ if __name__ == '__main__':
             ## use re.escape to put to escapify the special char
             ## find rsID using the dbSNP -i info option
             ## re.I ignores case and re.M multiline
-            myregex = re.search(re.escape(args.r) + '(.*)\;*', info, re.I | re.M)
+            ## the regex finds the first (or more) ';' and takes whatever's between the FIRST ';' (it rejects all
+            # other ';' and the args.r
+            myregex = re.search(re.escape(args.r) + '([^;]+)', info, re.I | re.M)
 
             if myregex:
                 rsID = myregex.group(1)
