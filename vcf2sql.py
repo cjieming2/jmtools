@@ -1,8 +1,12 @@
 #!/usr/bin/env python
 
-import os, sys, distutils, re
-import argparse
+import os
+import re
+import sys
+
 import MySQLdb
+import argparse
+from mysql.connector.constants import ClientFlag
 
 parser = argparse.ArgumentParser(description='This script takes a vcf input file and converts it to a mySQL table with '
                                              '3 columns: subject, dbSNP, genotype, where dbSNP contains the rsID of '
@@ -40,7 +44,8 @@ if __name__ == '__main__':
                          user=args.u,
                          passwd=args.p,
                          db=args.d,
-                         local_infile=True)
+                         local_infile=True,
+                         client_flags=[ClientFlag.LOCAL_FILES])
 
     ## prepare a cursor object using cursor() method
     ## this will let me execute all the queries
