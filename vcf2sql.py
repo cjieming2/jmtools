@@ -134,6 +134,15 @@ if __name__ == '__main__':
             else:
                 logfile.write('At position ' + snp + ', ' + 'no matches for regex \"' + args.r + '\"\n')
 
+    ## insert data using insertdata_fast
+    try :
+        datafilename = 'vcf2sql-' + args.i + '.out'
+        insertdata_fast = "LOAD DATA INFILE \'" + datafilename + "\' INTO TABLE " + tablename
+        cursor.execute(insertdata_fast)
+        db.commit()
+    except:
+        db.rollback()
+
     db.close()
     datafile.close()
     logfile.close()
