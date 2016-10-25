@@ -1,8 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import os, sys, distutils, re
 import argparse
-import MySQLdb
+import pymysql
 
 parser = argparse.ArgumentParser(description='This script takes a vcf input file and converts it to a mySQL table with '
                                              '3 columns: subject, dbSNP, genotype, where dbSNP contains the rsID of '
@@ -28,6 +28,55 @@ if len(sys.argv) == 1:
 
 args = parser.parse_args()
 
+## function from boris to load data
+def load_data_from_file(data_file_name, target_table):
+
+   # loads data from file data_file_name into table target_table
+   connection = pymysql.connect(host=args.n, user=args.u, passwd=args.p, db=args.d, local_infile=True)
+   cursor = connection.cursor()
+
+   ## Create table as per requirement
+   droptable = "DROP TABLE IF EXISTS " + tablename
+   cursor.execute(droptable)
+
+   createtable = "CREATE TABLE " + tablename + """ (
+                   sample_ID  VARCHAR(20) NOT NULL,
+                   dbSNP  VARCHAR(20),
+                   genotype CHAR(2) ) """
+   cursor.execute(createtable)
+
+   ## add data
+   sql = Template("""
+                       LOAD DATA LOCAL INFILE "$file"
+                       INTO TABLE $table CHARACTER SET UTF8 FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n';""")
+   # sql = Template("""
+   #                    LOAD DATA LOCAL INFILE "$file"
+   #                    INTO TABLE $table FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n';""")
+
+   sql = sql.substitute(file=data_file_name, table=target_table)
+
+   # sql = Template("""
+   #         LOAD DATA LOCAL INFILE "$file"
+   #         INTO TABLE $table FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n' (id,gsm,val) SET pk = null;""")
+   # sql = sql.substitute(file=data_file_name, table=target_table)
+
+   cursor.execute(sql)
+   connection.commit()
+   cursor.close()
+   connection.close()
+
+   # print("finished loading: ", data_file_name)
+   # os.remove(data_file_name)
+   sys.stdout.flush()
+
+   # SET FOREIGN_KEY_CHECKS = 0;
+   # SET UNIQUE_CHECKS = 0;
+   # SET SESSION tx_isolation='READ-UNCOMMITTED';
+   # SET sql_log_bin = 0;
+
+   return
+
+
 ## main program
 if __name__ == '__main__':
 
@@ -35,33 +84,9 @@ if __name__ == '__main__':
     logfile = open('vcf2sql-' + args.i + '.log', 'w')
     datafile = open('vcf2sql-' + args.i + '.out', 'w')
 
-    ## open database connection
-    db = MySQLdb.connect(host=args.n,
-                         user=args.u,
-                         passwd=args.p,
-                         db=args.d,
-                         local_infile=1)
-
-    ## prepare a cursor object using cursor() method
-    ## this will let me execute all the queries
-    cursor = db.cursor()
-
-    # Drop table if it already exist using execute() method.
-    tablename = "dz_risk_" + args.s
-    droptable = "DROP TABLE IF EXISTS " + tablename 
-    cursor.execute(droptable)
-    #warnings.filterwarnings('ignore', 'unknown table') ## otherwise will generate an annoying warning
-
-    ## Create table as per requirement
-    sql = "CREATE TABLE " + tablename + """ (
-             sample_ID  VARCHAR(20) NOT NULL,
-             dbSNP  VARCHAR(20),
-             genotype CHAR(2) ) """ 
-
-    cursor.execute(sql)
-
     ## read STDIN when '-' as input
     ## else read as a file
+    ## parse VCF
     if args.i == '-':
         lines = sys.stdin.readlines()
     else:
@@ -123,36 +148,19 @@ if __name__ == '__main__':
                     ## some of these haploid genotype are not in Y chr
                     genotype = alleles[ int(subjinfo[0]) ]
 
-                # insert data
-                # try:
-                #     insertdata = "INSERT INTO " + tablename + " VALUES (%s, %s, %s)"
-                #     cursor.execute(insertdata, (args.s, rsID, genotype))
-                #     db.commit()
-                # except:
-                #     db.rollback()
                 datafile.write(args.s + '\t' + rsID + '\t' + genotype + '\n')  ## debug
 
             else:
                 logfile.write('At position ' + snp + ', ' + 'no matches for regex \"' + args.r + '\"\n')
 
-    ## insert data using insertdata_fast
-    try :
-        cwd = os.getcwd()
-        datafilename = cwd + '/vcf2sql-' + args.i + '.out'
-        insertdata_fast = "LOAD DATA LOCAL INFILE \'" + datafilename + "\' INTO TABLE " + tablename + " CHARACTER SET " \
-                                                                                                      "UTF8 FIELDS " \
-                                                                                                      "TERMINATED BY " \
-                                                                                                      "\'\\t\' LINES " \
-                                                                                                      "TERMINATED BY " \
-                                                                                                      "\'\\n\'\;"
-        print insertdata_fast ## debug
-        cursor.execute(insertdata_fast)
-        db.commit()
-    except StandardError, e:
-        print e
-        db.rollback()
+    ## the function creates table
+    ## and load data to mySQL from file
+    cwd = os.getcwd()
+    datafilename = cwd + '/vcf2sql-' + args.i + '.out'
+    tablename = "dz_risk_" + args.s
 
-    cursor.close()
-    db.close()
+    load_data_from_file(datafilename, tablename)
+
+
     datafile.close()
     logfile.close()
