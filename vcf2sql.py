@@ -139,7 +139,7 @@ if __name__ == '__main__':
     try :
         cwd = os.getcwd()
         datafilename = cwd + '/vcf2sql-' + args.i + '.out'
-        insertdata_fast = "LOAD DATA LOCAL INFILE \'" + datafilename + "\' INTO TABLE " + tablename + "CHARACTER SET " \
+        insertdata_fast = "LOAD DATA LOCAL INFILE \'" + datafilename + "\' INTO TABLE " + tablename + " CHARACTER SET " \
                                                                                                       "UTF8 FIELDS " \
                                                                                                       "TERMINATED BY " \
                                                                                                       "\'\\t\' LINES " \
