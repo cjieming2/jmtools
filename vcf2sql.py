@@ -1,11 +1,9 @@
 #!/usr/bin/env python
 
-import os
-import re
-import sys
-
-import MySQLdb
+import os, sys, distutils, re
 import argparse
+import MySQLdb
+import mysql.connector
 from mysql.connector.constants import ClientFlag
 
 parser = argparse.ArgumentParser(description='This script takes a vcf input file and converts it to a mySQL table with '
