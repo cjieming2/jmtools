@@ -7,7 +7,8 @@ import MySQLdb
 parser = argparse.ArgumentParser(description='This script takes a vcf input file and converts it to a mySQL table with '
                                              '3 columns: subject, dbSNP, genotype, where dbSNP contains the rsID of '
                                              'the '
-                                             'SNP and genotype contains the genotype in format AA,AB, or BB',
+                                             'SNP and genotype contains the genotype in format AA,AB, or BB.'
+                                             'It outputs a file and uses LOAD_DATA_INFILE to expedite data insertion.',
                                  usage='vcf2sql.py -n <host> -u <username> -d <database> -s <sample_name> -i <input '
                                        'vcf>',
                                  epilog='EXAMPLE: vcf2sql.py -n buttelab-aws -u chenj -s NA12878 -d chenj -r '
@@ -32,6 +33,7 @@ if __name__ == '__main__':
 
     ## log file
     logfile = open('vcf2sql-' + args.i + '.log', 'w')
+    datafile = open('vcf2sql-' + args.i + '.out', 'w')
 
     ## open database connection
     db = MySQLdb.connect(host=args.n,
@@ -103,7 +105,7 @@ if __name__ == '__main__':
 
                 ## genotype
                 subjinfo = subj.rstrip().split(':', 6)
-                assert len(subjinfo) == 6, '<6 items in the INFO column'
+                assert len(subjinfo) == 6, logfile.write('<6 items in the INFO column')
 
                 unphased = re.match('.+/.+', subjinfo[0], re.I | re.M)
                 phased = re.match('.+\|.+', subjinfo[0], re.I | re.M)
@@ -121,16 +123,17 @@ if __name__ == '__main__':
                     genotype = alleles[ int(subjinfo[0]) ]
 
                 # insert data
-                try:
-                    insertdata = "INSERT INTO " + tablename + " VALUES (%s, %s, %s)"
-                    cursor.execute(insertdata, (args.s, rsID, genotype))
-                    db.commit()
-                except:
-                    db.rollback()
-                # print args.s + '\t' + rsID + '\t' + genotype  ## debug
+                # try:
+                #     insertdata = "INSERT INTO " + tablename + " VALUES (%s, %s, %s)"
+                #     cursor.execute(insertdata, (args.s, rsID, genotype))
+                #     db.commit()
+                # except:
+                #     db.rollback()
+                datafile.write(args.s + '\t' + rsID + '\t' + genotype + '\n')  ## debug
 
             else:
                 logfile.write('At position ' + snp + ', ' + 'no matches for regex \"' + args.r + '\"\n')
 
     db.close()
+    datafile.close()
     logfile.close()
