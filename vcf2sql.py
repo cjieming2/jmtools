@@ -39,7 +39,8 @@ if __name__ == '__main__':
     db = MySQLdb.connect(host=args.n,
                          user=args.u,
                          passwd=args.p,
-                         db=args.d)
+                         db=args.d,
+                         local_infile=1)
 
     ## prepare a cursor object using cursor() method
     ## this will let me execute all the queries
@@ -139,7 +140,6 @@ if __name__ == '__main__':
         cwd = os.getcwd()
         datafilename = cwd + '/vcf2sql-' + args.i + '.out'
         insertdata_fast = "LOAD DATA LOCAL INFILE \'" + datafilename + "\' INTO TABLE " + tablename + ';'
-        print insertdata_fast ## debug
         cursor.execute(insertdata_fast)
         db.commit()
     except:
