@@ -3,8 +3,6 @@
 import os, sys, distutils, re
 import argparse
 import MySQLdb
-import mysql.connector
-from mysql.connector.constants import ClientFlag
 
 parser = argparse.ArgumentParser(description='This script takes a vcf input file and converts it to a mySQL table with '
                                              '3 columns: subject, dbSNP, genotype, where dbSNP contains the rsID of '
@@ -42,8 +40,7 @@ if __name__ == '__main__':
                          user=args.u,
                          passwd=args.p,
                          db=args.d,
-                         local_infile=True,
-                         client_flags=[ClientFlag.LOCAL_FILES])
+                         local_infile=1)
 
     ## prepare a cursor object using cursor() method
     ## this will let me execute all the queries
@@ -142,7 +139,7 @@ if __name__ == '__main__':
     try :
         cwd = os.getcwd()
         datafilename = cwd + '/vcf2sql-' + args.i + '.out'
-        insertdata_fast = "LOAD DATA LOCAL INFILE \'" + datafilename + "\' INTO TABLE " + tablename + ';'
+        insertdata_fast = "LOAD DATA LOCAL INFILE " + datafilename + " INTO TABLE " + tablename + ';'
         print insertdata_fast ## debug
         cursor.execute(insertdata_fast)
         db.commit()
@@ -150,6 +147,7 @@ if __name__ == '__main__':
         print e
         db.rollback()
 
+    cursor.close()
     db.close()
     datafile.close()
     logfile.close()
