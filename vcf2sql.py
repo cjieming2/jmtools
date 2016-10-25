@@ -40,7 +40,7 @@ if __name__ == '__main__':
                          user=args.u,
                          passwd=args.p,
                          db=args.d,
-                         local_infile=1)
+                         local_infile=True)
 
     ## prepare a cursor object using cursor() method
     ## this will let me execute all the queries
@@ -143,7 +143,8 @@ if __name__ == '__main__':
         print insertdata_fast ## debug
         cursor.execute(insertdata_fast)
         db.commit()
-    except:
+    except StandardError, e:
+        print e
         db.rollback()
 
     db.close()
