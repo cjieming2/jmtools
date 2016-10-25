@@ -140,6 +140,7 @@ if __name__ == '__main__':
         cwd = os.getcwd()
         datafilename = cwd + '/vcf2sql-' + args.i + '.out'
         insertdata_fast = "LOAD DATA LOCAL INFILE \'" + datafilename + "\' INTO TABLE " + tablename + ';'
+        print insertdata_fast ## debug
         cursor.execute(insertdata_fast)
         db.commit()
     except:
