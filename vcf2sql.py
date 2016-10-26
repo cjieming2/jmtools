@@ -3,7 +3,7 @@
 import os, sys, distutils, re
 import argparse
 import pymysql
-import string
+from string import Template
 
 parser = argparse.ArgumentParser(description='This script takes a vcf input file and converts it to a mySQL table with '
                                              '3 columns: subject, dbSNP, genotype, where dbSNP contains the rsID of '
