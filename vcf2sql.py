@@ -88,12 +88,11 @@ if __name__ == '__main__':
     ## else read as a file
     ## parse VCF
     if args.i == '-':
-        lines = sys.stdin.readlines()
+        f1 = sys.stdin.readline()
     else:
-        f1 = open(args.i)
-        lines = f1.xreadlines()
+        f1 = open(args.i, 'r')
 
-    for line in lines:
+    for line in f1:
 
         # print line.rstrip() ## debug
         ## if second character == "##" skip
