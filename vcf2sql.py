@@ -160,7 +160,7 @@ if __name__ == '__main__':
     tablename = "dz_risk_" + args.s
 
     load_data_from_file(datafilename, tablename)
-
+    print(datafilename)
 
     ## close
     datafile.close()
