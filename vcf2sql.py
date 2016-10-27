@@ -49,7 +49,7 @@ def load_data_from_file(data_file_name, target_table):
    ## add data
    sql = Template("""
                            LOAD DATA LOCAL INFILE "$file"
-                           INTO TABLE $table CHARACTER SET UTF8 FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n';""")
+                           INTO TABLE $table FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n';""")
    sql = sql.substitute(file=data_file_name, table=target_table)
 
    # sql = Template("""
@@ -153,7 +153,7 @@ if __name__ == '__main__':
     ## and load data to mySQL from file
     cwd = os.getcwd()
     datafilename = cwd + '/vcf2sql-' + args.i + '.out'
-    tablename = "dz_risk_" + args.s
+    tablename = 'dz_risk_' + args.s
 
     load_data_from_file(datafilename, tablename)
 
