@@ -182,7 +182,7 @@ if __name__ == '__main__':
     passwd = "3VrTh60IlfiHjLATiVkKn8orM"
     db = "user_chenj"
 
-    load_data_from_file(datafilename, tablename)
+    load_data_from_file('/home/chenj/varimed/mias_asthma_michiganState/GenomicData/Macrogen/P0/test/vcf2sql-test.vcf.out, tablename)
 
     ## close
     datafile.close()
