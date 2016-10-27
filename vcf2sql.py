@@ -49,7 +49,7 @@ def load_data_from_file(data_file_name, target_table):
     ## add data
     sql = Template("""
                            LOAD DATA LOCAL INFILE "$file"
-                           INTO TABLE $table CHARACTER SET UTF8 FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n';""")
+                           INTO TABLE $table ;""")
     sql = sql.substitute(file=data_file_name, table=target_table)
 
     # sql = Template("""
