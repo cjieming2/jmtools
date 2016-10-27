@@ -37,14 +37,14 @@ def load_data_from_file(data_file_name, target_table):
    cursor = connection.cursor()
 
    ## Create table as per requirement
-   # droptable = "DROP TABLE IF EXISTS " + tablename
-   # cursor.execute(droptable)
-   #
-   # createtable = "CREATE TABLE " + tablename + """ (
-   #                 sample_ID  VARCHAR(20) NOT NULL,
-   #                 dbSNP  VARCHAR(20),
-   #                 genotype CHAR(2) ) """
-   # cursor.execute(createtable)
+   droptable = "DROP TABLE IF EXISTS " + tablename
+   cursor.execute(droptable)
+
+   createtable = "CREATE TABLE " + tablename + """ (
+                   sample_ID  VARCHAR(20) NOT NULL,
+                   dbSNP  VARCHAR(20),
+                   genotype CHAR(2) ) """
+   cursor.execute(createtable)
 
    ## add data
    sql = Template("""
