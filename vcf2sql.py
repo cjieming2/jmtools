@@ -29,12 +29,11 @@ if len(sys.argv) == 1:
 
 args = parser.parse_args()
 
-
 ## function from boris to load data
-def load_data_from_file(data_file_name, target_table):
+def load_data_from_file(data_file_name, target_table, host, user, passwd, db):
 
     # loads data from file data_file_name into table target_table
-    connection = pymysql.connect(host=args.n, user=args.u, passwd=args.p, db=args.d, local_infile=True)
+    connection = pymysql.connect(host, user, passwd, db, local_infile=True)
     cursor = connection.cursor()
     sql = Template("""
                         LOAD DATA LOCAL INFILE "$file"
@@ -178,7 +177,12 @@ if __name__ == '__main__':
     datafilename = cwd + '/vcf2sql-' + args.i + '.out'
     tablename = 'dz_risk_' + args.s
 
-    load_data_from_file(datafilename, tablename)
+    host = args.n
+    user = args.u
+    passwd = args.i
+    db = args.d
+
+    load_data_from_file(datafilename, tablename, host, user, passwd, db)
 
     ## close
     datafile.close()
