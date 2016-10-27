@@ -34,7 +34,7 @@ args = parser.parse_args()
 def load_data_from_file(data_file_name, target_table):
 
     # loads data from file data_file_name into table target_table
-    connection = pymysql.connect(host, user, passwd, db, local_infile=True)
+    connection = pymysql.connect(host=args.n, user=args.u, passwd=args.p, db=args.d, local_infile=True)
     cursor = connection.cursor()
     sql = Template("""
                         LOAD DATA LOCAL INFILE "$file"
