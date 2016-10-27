@@ -4,6 +4,7 @@ import os, sys, distutils, re
 import argparse
 import pymysql
 from string import Template
+import load_tbl
 
 parser = argparse.ArgumentParser(description='This script takes a vcf input file and converts it to a mySQL table with '
                                              '3 columns: subject, dbSNP, genotype, where dbSNP contains the rsID of '
@@ -29,27 +30,8 @@ if len(sys.argv) == 1:
 
 args = parser.parse_args()
 
+
 ## function from boris to load data
-def load_data_from_file(data_file_name, target_table):
-
-    # loads data from file data_file_name into table target_table
-    connection = pymysql.connect(host, user, passwd, db, local_infile=True)
-    cursor = connection.cursor()
-    sql = Template("""
-                        LOAD DATA LOCAL INFILE "$file"
-                        INTO TABLE $table CHARACTER SET UTF8 FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n';""")
-    sql = sql.substitute(file=data_file_name, table=target_table)
-
-    cursor.execute(sql)
-    connection.commit()
-    cursor.close()
-    connection.close()
-
-    print("finished loading: ", data_file_name)
-    sys.stdout.flush()
-
-    return
-
 # def load_data_from_file(data_file_name, target_table):
 #     # loads data from file data_file_name into table target_table
 #     connection = pymysql.connect(host=args.n, user=args.u, passwd=args.p, db=args.d, local_infile=True)
@@ -177,12 +159,7 @@ if __name__ == '__main__':
     datafilename = cwd + '/vcf2sql-' + args.i + '.out'
     tablename = 'dz_risk_' + args.s
 
-    host = "buttelab-aws-prod-aurora-cluster.cluster-cd8zgucpvgtu.us-west-2.rds.amazonaws.com"
-    user = "chenj"
-    passwd = "3VrTh60IlfiHjLATiVkKn8orM"
-    db = "user_chenj"
-
-    load_data_from_file('/home/chenj/varimed/mias_asthma_michiganState/GenomicData/Macrogen/P0/test/vcf2sql-test.vcf.out', 'dz_risk_P0_a')
+    load_data_from_file(datafilename, tablename)
 
     ## close
     datafile.close()
