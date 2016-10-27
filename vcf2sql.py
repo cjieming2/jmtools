@@ -54,7 +54,7 @@ def load_data_from_file(data_file_name, target_table):
 
     sql = "LOAD DATA LOCAL INFILE " + data_file_name + \
           " INTO TABLE " + target_table + " CHARACTER SET UTF8 FIELDS TERMINATED BY '\\t' LINES TERMINATED BY '\\n';"
-
+    print(sql)
     # sql = Template("""
     #         LOAD DATA LOCAL INFILE "$file"
     #         INTO TABLE $table FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n' (id,gsm,val) SET pk = null;""")
