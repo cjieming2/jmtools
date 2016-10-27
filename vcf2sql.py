@@ -179,7 +179,7 @@ if __name__ == '__main__':
 
     host = args.n
     user = args.u
-    passwd = args.i
+    passwd = args.p
     db = args.d
 
     load_data_from_file(datafilename, tablename, host, user, passwd, db)
