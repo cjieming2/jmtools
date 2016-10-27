@@ -30,7 +30,7 @@ if len(sys.argv) == 1:
 args = parser.parse_args()
 
 ## function from boris to load data
-def load_data_from_file(data_file_name, target_table, host, user, passwd, db):
+def load_data_from_file(data_file_name, target_table):
 
     # loads data from file data_file_name into table target_table
     connection = pymysql.connect(host, user, passwd, db, local_infile=True)
@@ -177,12 +177,12 @@ if __name__ == '__main__':
     datafilename = cwd + '/vcf2sql-' + args.i + '.out'
     tablename = 'dz_risk_' + args.s
 
-    host = args.n
-    user = args.u
-    passwd = args.p
-    db = args.d
+    host = "buttelab-aws-prod-aurora-cluster.cluster-cd8zgucpvgtu.us-west-2.rds.amazonaws.com"
+    user = "chenj"
+    passwd = "3VrTh60IlfiHjLATiVkKn8orM"
+    db = "user_chenj"
 
-    load_data_from_file(datafilename, tablename, host, user, passwd, db)
+    load_data_from_file(datafilename, tablename)
 
     ## close
     datafile.close()
