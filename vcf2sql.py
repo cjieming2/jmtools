@@ -50,11 +50,6 @@ def load_data_from_file(data_file_name, target_table):
    sql = Template("""
                            LOAD DATA LOCAL INFILE "$file"
                            INTO TABLE $table CHARACTER SET UTF8 FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n';""")
-   
-   # sql = Template("""
-   #                    LOAD DATA LOCAL INFILE "$file"
-   #                    INTO TABLE $table FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n';""")
-
    sql = sql.substitute(file=data_file_name, table=target_table)
 
    # sql = Template("""
@@ -67,7 +62,7 @@ def load_data_from_file(data_file_name, target_table):
    cursor.close()
    connection.close()
 
-   print("finished loading: ", data_file_name)
+   print("finished loading: ", data_file_name, "to ", args.d)
    # os.remove(data_file_name)
    sys.stdout.flush()
 
@@ -161,7 +156,6 @@ if __name__ == '__main__':
     tablename = "dz_risk_" + args.s
 
     load_data_from_file(datafilename, tablename)
-    print(datafilename)
 
     ## close
     datafile.close()
