@@ -32,49 +32,69 @@ args = parser.parse_args()
 
 ## function from boris to load data
 def load_data_from_file(data_file_name, target_table):
+
     # loads data from file data_file_name into table target_table
-    connection = pymysql.connect(host=args.n, user=args.u, passwd=args.p, db=args.d, local_infile=True)
+    connection = pymysql.connect(host, user, passwd, db, local_infile=True)
     cursor = connection.cursor()
-
-    ## Create table as per requirement
-    droptable = "DROP TABLE IF EXISTS " + tablename
-    cursor.execute(droptable)
-
-    createtable = "CREATE TABLE " + tablename + """ (
-                   sample_ID  VARCHAR(20) NOT NULL,
-                   dbSNP  VARCHAR(20),
-                   genotype CHAR(2) ); """
-    cursor.execute(createtable)
-
-    ## add data
-    # sql = Template("""
-    #                        LOAD DATA LOCAL INFILE "$file"
-    #                        INTO TABLE $table CHARACTER SET UTF8 FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n';""")
-    # sql = sql.substitute(file=data_file_name, table=target_table)
-
-    sql = "LOAD DATA LOCAL INFILE \"" + data_file_name + \
-          "\" INTO TABLE " + target_table + " CHARACTER SET UTF8 FIELDS TERMINATED BY '\\t' LINES TERMINATED BY '\\n';"
-    print(sql)
-    # sql = Template("""
-    #         LOAD DATA LOCAL INFILE "$file"
-    #         INTO TABLE $table FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n' (id,gsm,val) SET pk = null;""")
-    # sql = sql.substitute(file=data_file_name, table=target_table)
+    sql = Template("""
+                        LOAD DATA LOCAL INFILE "$file"
+                        INTO TABLE $table CHARACTER SET UTF8 FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n';""")
+    sql = sql.substitute(file=data_file_name, table=target_table)
 
     cursor.execute(sql)
     connection.commit()
     cursor.close()
     connection.close()
 
-    print("finished loading: ", data_file_name, "to ", args.d)
-    # os.remove(data_file_name)
+    print("finished loading: ", data_file_name)
     sys.stdout.flush()
 
-    # SET FOREIGN_KEY_CHECKS = 0;
-    # SET UNIQUE_CHECKS = 0;
-    # SET SESSION tx_isolation='READ-UNCOMMITTED';
-    # SET sql_log_bin = 0;
-
     return
+
+# def load_data_from_file(data_file_name, target_table):
+#     # loads data from file data_file_name into table target_table
+#     connection = pymysql.connect(host=args.n, user=args.u, passwd=args.p, db=args.d, local_infile=True)
+#     cursor = connection.cursor()
+#
+#     ## Create table as per requirement
+#     droptable = "DROP TABLE IF EXISTS " + tablename
+#     cursor.execute(droptable)
+#
+#     createtable = "CREATE TABLE " + tablename + """ (
+#                    sample_ID  VARCHAR(20) NOT NULL,
+#                    dbSNP  VARCHAR(20),
+#                    genotype CHAR(2) ); """
+#     cursor.execute(createtable)
+#
+#     ## add data
+#     # sql = Template("""
+#     #                        LOAD DATA LOCAL INFILE "$file"
+#     #                        INTO TABLE $table CHARACTER SET UTF8 FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n';""")
+#     # sql = sql.substitute(file=data_file_name, table=target_table)
+#
+#     sql = "LOAD DATA LOCAL INFILE \"" + data_file_name + \
+#           "\" INTO TABLE " + target_table + " CHARACTER SET UTF8 FIELDS TERMINATED BY '\\t' LINES TERMINATED BY '\\n';"
+#     print(sql)
+#     # sql = Template("""
+#     #         LOAD DATA LOCAL INFILE "$file"
+#     #         INTO TABLE $table FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n' (id,gsm,val) SET pk = null;""")
+#     # sql = sql.substitute(file=data_file_name, table=target_table)
+#
+#     cursor.execute(sql)
+#     connection.commit()
+#     cursor.close()
+#     connection.close()
+#
+#     print("finished loading: ", data_file_name, "to ", args.d)
+#     # os.remove(data_file_name)
+#     sys.stdout.flush()
+#
+#     # SET FOREIGN_KEY_CHECKS = 0;
+#     # SET UNIQUE_CHECKS = 0;
+#     # SET SESSION tx_isolation='READ-UNCOMMITTED';
+#     # SET sql_log_bin = 0;
+#
+#     return
 
 
 ## main program
