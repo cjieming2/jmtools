@@ -159,8 +159,9 @@ if __name__ == '__main__':
     datafilename = cwd + '/vcf2sql-' + args.i + '.out'
     tablename = 'dz_risk_' + args.s
 
-    load_data_from_file(datafilename, tablename)
+    ## load_data_from_file(datafilename, tablename)
 
     ## close
     datafile.close()
+    load_data_from_file(datafilename, tablename)
     logfile.close()
