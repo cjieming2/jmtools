@@ -14,7 +14,7 @@ parser = argparse.ArgumentParser(description='This script takes a vcf input file
                                        'vcf>',
                                  epilog='EXAMPLE: vcf2sql.py -n buttelab-aws -u chenj -s NA12878 -d chenj -r '
                                         'dbSNP142_ID=rs -i test.vcf')
-parser.add_argument('-i', help='vcf file; header required; "-" means STDIN')
+parser.add_argument('-i', help='vcf file or STDIN '-'; header required; "-" means STDIN')
 parser.add_argument('-n', help='hostname for database and table')
 parser.add_argument('-u', help='username for database')
 parser.add_argument('-d', help='database')
