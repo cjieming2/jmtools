@@ -83,7 +83,7 @@ if __name__ == '__main__':
         #     mylookuptable[xfields[3]][xfields[0]] = { xfields[1] : xfields[2] }
 
 
-    print mylookuptable  ##debug
+    print(mylookuptable) ##debug
 
     ## read input file
     for line in lines:
