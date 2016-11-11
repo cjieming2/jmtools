@@ -84,7 +84,7 @@ if __name__ == '__main__':
 
     ## log file
     logfile = open('vcf2sql-' + args.i + '.log', 'w')
-    datafile = open('vcf2sql-' + args.i + '.out', 'w')
+    # datafile = open('vcf2sql-' + args.i + '.out', 'w')
 
     ## read STDIN when '-' as input
     ## else read as a file
@@ -149,7 +149,7 @@ if __name__ == '__main__':
                     ## some of these haploid genotype are not in Y chr
                     genotype = alleles[int(subjinfo[0])]
 
-                datafile.write(args.s + '\t' + rsID + '\t' + genotype + '\n')  ## debug
+                # datafile.write(args.s + '\t' + rsID + '\t' + genotype + '\n')  ## debug
 
             else:
                 logfile.write('At position ' + snp + ', ' + 'no matches for regex \"' + args.r + '\"\n')
