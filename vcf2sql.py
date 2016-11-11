@@ -19,6 +19,7 @@ parser.add_argument('-n', help='hostname for database and table')
 parser.add_argument('-u', help='username for database')
 parser.add_argument('-d', help='database')
 parser.add_argument('-s', help='sample/subject name')
+parser.add_argument('-t', help='table name')
 parser.add_argument('-p', nargs='?', help='password for database')
 parser.add_argument('-r', nargs='?', help='regex for the INFO field')
 
@@ -157,7 +158,7 @@ if __name__ == '__main__':
     ## and load data to mySQL from file
     cwd = os.getcwd()
     datafilename = cwd + '/vcf2sql-' + args.i + '.out'
-    tablename = 'dz_risk_' + args.s
+    tablename = args.t
 
     ## close file BEFORE you load data with file
     datafile.close()
