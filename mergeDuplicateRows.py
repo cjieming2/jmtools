@@ -57,7 +57,7 @@ if __name__ == '__main__':
 
     ## print stored lines
     for key in sorted(myuniqlines):
-        print(myuniqlines[key])
+        print(myuniqlines[key], sep='')
 
 
 
