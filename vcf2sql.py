@@ -161,7 +161,7 @@ if __name__ == '__main__':
     tablename = args.t
 
     ## close file BEFORE you load data with file
-    datafile.close()
+    #datafile.close()
 
     ## load data
     load_data_from_file(datafilename, tablename)

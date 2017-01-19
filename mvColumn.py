@@ -6,7 +6,7 @@ import argparse
 parser=argparse.ArgumentParser(description='This script takes a tsv input file and an additional 3-column fileX to '
                                            'redefine the first column stipulated in fileX in the input file, '
                                            'from the second column to entries in the third column'
-                                           'e.g. 10 in col1, 1 in col2 and Asian in col3 means for each input col10'
+                                           'e.g. 10 in col1, 1 in col2 and Asian in col3 means for each input 10'
                                            'replace 1 with Asian',
                                usage='mvColumn.py <inputfile> <fileX>',
                                epilog="EXAMPLE: mvColumn.py test.txt threecolumns.txt > test.out")
@@ -32,14 +32,16 @@ if __name__ == '__main__':
     if sys.argv[1] == '-':
         lines = sys.stdin.readlines()
     else:
-        f1 = open(sys.argv[1])
-        lines = f1.xreadlines()
+        lines = open(sys.argv[1])
+        # f1 = open(sys.argv[1]) #python2.7
+        # lines = f1.xreadlines() #python2.7
 
     if sys.argv[2] == '-':
         xlines = sys.stdin.readlines()
     else:
-        f2 = open(sys.argv[2])
-        xlines = f2.xreadlines()
+        xlines = open(sys.argv[2])
+        # f2 = open(sys.argv[2]) #python2.7
+        # xlines = f2.xreadlines() #python2.7
 
     mylookuptable = {}
     ctr = 0
@@ -51,7 +53,7 @@ if __name__ == '__main__':
         fn = sys.argv[1]
     logfile = open("mvColumn_" + fn + ".log", 'w')
 
-    ## read fileX
+    ## read fileX; 3 columns, no header
     for xline in xlines:
         xfields = xline.rstrip().split('\t')
 
@@ -63,16 +65,18 @@ if __name__ == '__main__':
         except KeyError:
             mylookuptable[xfields[0]] = { xfields[1] : xfields[2] }
 
+    # print(mylookuptable)  ##debug
 
-    # print mylookuptable  ##debug
+    ##variables
+    firstttime = 0
 
-    ## read input file
+    ## read input file tsv matrix file
     for line in lines:
         fields = line.rstrip().split('\t')
 
         ## skip header
         if ctr == 0:
-            print ('\t' + join(fields))
+            print ('\t'.join(fields), sep='')
             ctr = 1
             continue
 
@@ -89,14 +93,14 @@ if __name__ == '__main__':
                 if firstttime == 0:
                     logfile.write("column" + "\t" + "undefined_entry" + "\t" + "row" + "\n")
                     firstttime = 1
-
+                ## if key or code doesnt exist, record in log file
                 logfile.write(str(colOne) + "\t" + str(fields[arrayColOne]) + "\t" + str(ctr) + "\n")
 
-            # print "colOne="+str(colOne)+";inputFileColOneEntry="+fields[arrayColOne] ##debug
-            # print "inputFileColOneEntryNew="+fields[arrayColOne]  ##debug
+            # print("colOne="+str(colOne)+";inputFileColOneEntry="+fields[arrayColOne]) ##debug
+            # print("inputFileColOneEntryNew="+fields[arrayColOne])  ##debug
 
         ## print the line
         newfields = '\t'.join(fields)
-        print(newfields)
+        print(newfields, sep='')
 
 logfile.close()

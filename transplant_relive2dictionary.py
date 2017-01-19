@@ -9,11 +9,12 @@ parser=argparse.ArgumentParser(description='This script takes the transplant REL
                                            '3-col dictionary',
                                usage='transplant_relive2dictionary.py -c <colfile> -f <formatfile> > <output>',
                                epilog="EXAMPLE: transplant_relive2dictionary.py -c all_RELIVE_Data_Dict.txt "
-                                      "Formats.excel.txt > threecol.out")
+                                      "-f Formats.excel.txt > threecol.out")
 parser.add_argument('-c', help='tab-delimited input file with 3 columns; header required; "-" means '
                                'STDIN; the columns are col1: colnum, col2=Name, col3=Format')
 parser.add_argument('-f', help='gibberish-looking Formats.txt file, with special chars replaced by "#", '
-                                        'with no standard format but has certain anchors such as "#FORMAT"')
+                               'with no standard format but has certain anchors such as "#FORMAT". Please '
+                               'combine those boxes with CONTD')
 parser.add_argument('output', nargs='?', type=argparse.FileType('w'), default=sys.stdout, help='STDOUT')
 
 ## help if no arguments or -h/--help
@@ -24,8 +25,6 @@ args=parser.parse_args()
 
 
 def parse_Formats_file(datafilename):
-    ## read STDIN when '-' as input
-    ## else read as a file
     ## the errors option this will cover the rest of the byte sequences that I havent been able to replace with '#' (or
     # 'non-UTF8' encodings, that cannot be decoded using UTF-8 codec to a correct Unicode character)
     f1 = open(datafilename, 'r', errors="replace")
@@ -93,11 +92,59 @@ def parse_Formats_file(datafilename):
 
     return d
 
+
+def parse_studyfile(studyfilename):
+    ## the errors option this will cover the rest of the byte sequences that I havent been able to replace with '#' (or
+    # 'non-UTF8' encodings, that cannot be decoded using UTF-8 codec to a correct Unicode character)
+    f2 = open(studyfilename, 'r', errors="replace")
+
+    ## variables
+    s = {}
+
+    ## parse studyfile with 3 columns: colnum, colname, formatname
+    for line in f2:
+        fields = line.strip().split('\t')
+
+        ## skip lines that do not have a format
+        if (fields[2] == '0') or (fields[2] == '#N/A') or \
+                (fields[0] == 'col') or (fields[2] == '$') or \
+                (fields[2].strip() == ''):
+            continue
+
+        fields[0] = int(fields[0].strip())
+        s[fields[0]] = fields[2].strip()
+
+    f2.close()
+
+    # print(s)
+    return s
+
 ## main program
 if __name__ == '__main__':
 
-    ## get a dictionary of formatname : { code : definition }
+    ## parse a dictionary of formatname : { code : definition }
     d = parse_Formats_file(args.f)
 
+    ## parse column info colnum : formatname
+    s = parse_studyfile(args.c)
+
+    ## print output
+    ## col1: colnum
+    ## col2: code
+    ## col3: definition
+    ## open a logfile to capture errors
+    loggfilename = 'relive2dictionary-' + args.c + '.log'
+    logfile = open(loggfilename, 'w')
+    for x in sorted(s):
+        if (s[x] not in d):
+            logfile.write('Format: ' + s[x] + ', not available in Formats file in -f')
+            continue
+        for y in sorted(d[s[x]]):
+            if y == '**OTHER**':
+                logfile.write('Removed the following code and definition: ' + y + ' : ' + d[s[x]][y] + '\n')
+                continue
+
+            print(x, '\t', y, '\t', d[s[x]][y], sep='')
 
 
+    logfile.close()
