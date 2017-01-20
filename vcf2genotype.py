@@ -62,6 +62,7 @@ if __name__ == '__main__':
                 if hfields[i] == sample:
                     samplecol = i
 
+            print(samplecol)
             next
 
         # else:  ## these are normal lines
