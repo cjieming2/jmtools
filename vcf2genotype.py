@@ -63,7 +63,7 @@ if __name__ == '__main__':
                     samplecol = i
 
             print(len(hfields))
-            next
+            break
 
         # else:  ## these are normal lines
         #
