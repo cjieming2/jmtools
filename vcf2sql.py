@@ -9,7 +9,10 @@ parser = argparse.ArgumentParser(description='This script takes a vcf input file
                                              '3 columns: subject, dbSNP, genotype, where dbSNP contains the rsID of '
                                              'the '
                                              'SNP and genotype contains the genotype in format AA,AB, or BB.'
-                                             'It outputs a file and uses LOAD_DATA_INFILE to expedite data insertion.',
+                                             'It uses LOAD_DATA_INFILE to expedite data insertion. If there is no '
+                                             'match for the regex, it skips the SNP. It searches for rsID in the '
+                                             'second column by default, unless the -r option is invoked to search in '
+                                             'the INFO field.',
                                  usage='vcf2sql.py -n <host> -u <username> -d <database> -s <sample_name> -i <input '
                                        'vcf>',
                                  epilog='EXAMPLE: vcf2sql.py -n buttelab-aws -u chenj -s NA12878 -d chenj -r '
@@ -90,7 +93,7 @@ if __name__ == '__main__':
     ## else read as a file
     ## parse VCF
     if args.i == '-':
-        f1 = sys.stdin.readline()
+        f1 = sys.stdin
     else:
         f1 = open(args.i, 'r')
 
@@ -99,9 +102,18 @@ if __name__ == '__main__':
         # print line.rstrip() ## debug
         ## if second character == "##" skip
         if (line[0] == "#") and (line[1] == "#"):
-            next;
+            next
         elif line[0] == "#":  ## if only first char "#", this is the header
-            next;
+            sample = args.s
+
+            hfields = line.rstrip().split('\t')
+
+            for i in range(0, len(hfields) - 1, 1):
+                if hfields[i] == sample:
+                    samplecol = i
+
+            next
+
         else:  ## these are normal lines
 
             ## split line into columns
@@ -119,40 +131,101 @@ if __name__ == '__main__':
             for i in range(0, len(altalleles)):
                 alleles.append(altalleles[i])
 
-            ## use re.escape to put to escapify the special char
-            ## find rsID using the dbSNP -i info option
-            ## re.I ignores case and re.M multiline
-            ## the regex finds the first (or more) ';' and takes whatever's between the FIRST ';' (it rejects all
-            # other ';' and the args.r
-            myregex = re.search(re.escape(args.r) + '([^;$]+)', info, re.I | re.M)
-            # print myregex ## debug
+            if args.r:
+                ## use re.escape to escapify the special char
+                ## find rsID using the dbSNP -i info option
+                ## re.I ignores case and re.M multiline
+                ## the regex finds the first (or more) ';' and takes whatever's between the FIRST ';' (it rejects all
+                # other ';' and the args.r
+                myregex = re.search(re.escape(args.r) + '([^;$]+)', info, re.I | re.M)
+                # print myregex ## debug
 
-            if myregex:
-                rsID = myregex.group(1)
+                if myregex:
+                    rsID = myregex.group(1)
 
-                ## genotype
-                subjinfo = subj.rstrip().split(':', 6)
-                assert len(subjinfo) == 6, logfile.write('<6 items in the INFO column')
+                    ## genotype
+                    subjinfo = subj.rstrip().split(':', 6)
+                    assert len(subjinfo) == 6, logfile.write('<6 items in the INFO column')
 
-                unphased = re.match('.+/.+', subjinfo[0], re.I | re.M)
-                phased = re.match('.+\|.+', subjinfo[0], re.I | re.M)
+                    unphased = re.match('.+/.+', subjinfo[0], re.I | re.M)
+                    phased = re.match('.+\|.+', subjinfo[0], re.I | re.M)
 
-                if unphased:
-                    a1 = subjinfo[0].rstrip().split('/')[0]
-                    a2 = subjinfo[0].rstrip().split('/')[1]
-                    genotype = alleles[int(a1)] + alleles[int(a2)]
-                elif phased:
-                    a1 = subjinfo[0].rstrip().split('|')[0]
-                    a2 = subjinfo[0].rstrip().split('|')[1]
-                    genotype = alleles[int(a1)] + alleles[int(a2)]
+                    if unphased:
+                        a1 = subjinfo[0].rstrip().split('/')[0]
+                        a2 = subjinfo[0].rstrip().split('/')[1]
+                        genotype = alleles[int(a1)] + alleles[int(a2)]
+                    elif phased:
+                        a1 = subjinfo[0].rstrip().split('|')[0]
+                        a2 = subjinfo[0].rstrip().split('|')[1]
+                        genotype = alleles[int(a1)] + alleles[int(a2)]
+                    else:
+                        ## some of these haploid genotype are not in Y chr
+                        genotype = alleles[int(subjinfo[0])]
+
+                    datafile.write(args.s + '\t' + rsID + '\t' + genotype + '\n')
+
                 else:
-                    ## some of these haploid genotype are not in Y chr
-                    genotype = alleles[int(subjinfo[0])]
-
-                # datafile.write(args.s + '\t' + rsID + '\t' + genotype + '\n')  ## debug
-
+                    logfile.write('At position ' + snp + ', ' + 'no matches for regex \"' + args.r + '\"\n')
             else:
-                logfile.write('At position ' + snp + ', ' + 'no matches for regex \"' + args.r + '\"\n')
+                rsID = fields[2]
+
+                if rsID != '.':
+                    ## genotype
+                    unphased = re.match('.+/.+', fields[samplecol], re.I | re.M)
+                    phased = re.match('.+\|.+', fields[samplecol], re.I | re.M)
+
+                    if unphased:
+                        a1 = fields[samplecol].rstrip().split('/')[0]
+                        a2 = fields[samplecol].rstrip().split('/')[1]
+                        genotype = alleles[int(a1)] + alleles[int(a2)]
+                    elif phased:
+                        a1 = fields[samplecol].rstrip().split('|')[0]
+                        a2 = fields[samplecol].rstrip().split('|')[1]
+                        genotype = alleles[int(a1)] + alleles[int(a2)]
+                    else:
+                        ## some of these haploid genotype are not in Y chr
+                        genotype = alleles[int(fields[samplecol])]
+
+                    datafile.write(args.s + '\t' + rsID + '\t' + genotype + '\n')
+                else:
+                    logfile.write('At position ' + snp + ', ' + 'rsID at column 3 is \'.\'' + '\n')
+
+
+
+            # ## use re.escape to escapify the special char
+            # ## find rsID using the dbSNP -i info option
+            # ## re.I ignores case and re.M multiline
+            # ## the regex finds the first (or more) ';' and takes whatever's between the FIRST ';' (it rejects all
+            # # other ';' and the args.r
+            # myregex = re.search(re.escape(args.r) + '([^;$]+)', info, re.I | re.M)
+            # # print myregex ## debug
+            #
+            # if myregex:
+            #     rsID = myregex.group(1)
+            #
+            #     ## genotype
+            #     subjinfo = subj.rstrip().split(':', 6)
+            #     assert len(subjinfo) == 6, logfile.write('<6 items in the INFO column')
+            #
+            #     unphased = re.match('.+/.+', subjinfo[0], re.I | re.M)
+            #     phased = re.match('.+\|.+', subjinfo[0], re.I | re.M)
+            #
+            #     if unphased:
+            #         a1 = subjinfo[0].rstrip().split('/')[0]
+            #         a2 = subjinfo[0].rstrip().split('/')[1]
+            #         genotype = alleles[int(a1)] + alleles[int(a2)]
+            #     elif phased:
+            #         a1 = subjinfo[0].rstrip().split('|')[0]
+            #         a2 = subjinfo[0].rstrip().split('|')[1]
+            #         genotype = alleles[int(a1)] + alleles[int(a2)]
+            #     else:
+            #         ## some of these haploid genotype are not in Y chr
+            #         genotype = alleles[int(subjinfo[0])]
+            #
+            #     # datafile.write(args.s + '\t' + rsID + '\t' + genotype + '\n')  ## debug
+            #
+            # else:
+            #     logfile.write('At position ' + snp + ', ' + 'no matches for regex \"' + args.r + '\"\n')
 
     ## the function creates table
     ## and load data to mySQL from file
