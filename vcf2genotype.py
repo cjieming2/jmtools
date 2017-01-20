@@ -10,7 +10,10 @@ parser = argparse.ArgumentParser(description='This script takes a vcf input file
                                              'the SNP and genotype contains the genotype in format AA,AB, or BB.'
                                              'It outputs a txt file prefixed vcf2genotype-. If there is no match for '
                                              'the regex, it skips the SNP. It searches for rsID in the second column '
-                                             'by default, unless the -r option is invoked to search in the INFO field',
+                                             'by default, unless the -r option is invoked to search in the INFO '
+                                             'field. This is unlike vcf2sql.py, which only works on a one-sample '
+                                             'genotype vcf with a 5-column INFO column GT:GQ:GQX:DP:DPF:AD. The -s '
+                                             'option here searches for the name within a multi-sample genotype file.',
                                  usage='vcf2genotype.py -s <sample_name> -i <input_vcf> -r <regex for rsID>',
                                  epilog='EXAMPLE: vcf2genotype.py -s NA12878 -i test.vcf -r rs')
 parser.add_argument('-i', help='vcf file or STDIN -; header required; "-" means STDIN')
