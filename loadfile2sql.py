@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import pymysql, sys
 from string import Template
 
@@ -51,7 +52,7 @@ def main():
     global host, user, passwd, db, filename
     filename = sys.argv[1]
     tablename = sys.argv[2]
-    tablename = tablename.replace("-","")
+    tablename = tablename.replace("-","_") ## for some reason, mySQL churn errors with "-" in table name
     host = "buttelab-aws-prod-aurora-cluster.cluster-cd8zgucpvgtu.us-west-2.rds.amazonaws.com"
     user = "chenj"
     passwd = "3VrTh60IlfiHjLATiVkKn8orM"
