@@ -66,7 +66,7 @@ def processSequenceFile(seqfile, logfile, subjID, outcome2start, outcome2end):
 													str(outcome2start[ outcomelist[i+1] ]) + '\t' + str(outcome2end[ outcomelist[i+1] ]) + '\n')
 			except IndexError:
 				#seqfile.write(outcomelist[i] + '\t' + subjID + '\tNA\n') ## debug
-				logfile.write('No sequence of events for ' + subjID + ' NA\n')
+				logfile.write('No sequence of events for ' + subjID + '\n')
 	
 	return;
 		
@@ -132,8 +132,17 @@ if __name__ == '__main__':
 				## an ordered list of outcomes in each row
 				if(re.match('[Yy][Ee][Ss]', fields[ int(cols[i])-1 ], re.I | re.M)):
 					#print(subjID + '|' + outcome + '|' + start + '|' + end) ## debug
-					outcome2start.update({outcome:int(start)})
-					outcome2end.update({outcome:int(end)})
+					try:
+						outcome2start.update({outcome:int(start)})
+						outcome2end.update({outcome:int(end)})
+					except ValueError:
+						## if start is NA, but outcome is Yes
+						## pseudo max time and tagging an 'NA' to it
+						#print('ERROR:' + subjID + '|outcome:' + outcome + '|col:' + str(int(cols[i+1])-1) + '|start:' + start + '|end:' + end) ## debug
+						outcome2start.update({outcome:5000000000})
+						outcome2end.update({outcome:5000000000})
+						outcome2start.update({'NA':5000000001})
+						outcome2end.update({'NA':5000000001})
 					
 			##### print to sequence file the sequence of events, using order from outcome start for each subject #####
 			##### event A -> event B per line
