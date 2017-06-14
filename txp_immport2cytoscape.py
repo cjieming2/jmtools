@@ -4,7 +4,7 @@ import os, sys, distutils, re
 import argparse
 from string import Template
 
-parser = argparse.ArgumentParser(description='This script takes a tab-delimited input file, and converts into tab-delimited Cytoscape compatible format. The output will allow plotting of transplant outcome sequelae and trajectories based on the user-specified columns. This script assumes that the first column is the unique ID column and uses it to annotate by individual patients. Outputs 3 files, named by the input file, and prefixed with txp_immport2cytoscape_seq and txp_immport2cytoscape_traj (ip) and the last one suffixed with .log',
+parser = argparse.ArgumentParser(description='This script takes a tab-delimited input file, and converts into tab-delimited Cytoscape compatible format. The output will allow plotting of transplant outcome sequelae based on the user-specified columns. This script assumes that the first column is the unique ID column and uses it to annotate by individual patients. Outputs 3 files, named by the input file, and prefixed with txp_immport2cytoscape_seq and the last one suffixed with .log',
                                  usage='txp_immport2cytoscape.py -c 1,2,0 -i <tsv-file>',
                                  epilog='EXAMPLE: txp_immport2cytoscape.py -c 1,2 -i file.txt')
 parser.add_argument('-i', help='input file or STDIN -; header required; "-" means STDIN')
@@ -70,12 +70,6 @@ def processSequenceFile(seqfile, logfile, subjID, outcome2start, outcome2end):
 	
 	return;
 		
-#########################################################################################################
-## this fxn prints the trajectories of events based on the start date of the outcome event
-
-
-
-
 ##### main program ######
 if __name__ == '__main__':
 	## output files
