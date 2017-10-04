@@ -8,7 +8,7 @@ parser = argparse.ArgumentParser(description='This script takes a tab-delimited 
                                  usage='txp_immport2cytoscape.py -c 1,2,0 -i <tsv-file>',
                                  epilog='EXAMPLE: txp_immport2cytoscape.py -c 1,2 -i file.txt')
 parser.add_argument('-i', help='input file or STDIN -; header required; "-" means STDIN')
-parser.add_argument('-c', help='comma-separated triplets of numbers, with the 1st number being the outcome/condition we watn cytoscape to have as a node, binary; 2nd number being the min/start date e.g. in days; 3rd number being the max/end date; x means to skip that category. E.g. -c 3,2,x would mean take column 3 for a certain outcome/condition we want Cytoscape to have as a node, typically, yes or no, 1 or 0, and column 2 is the start date, with no end date in this case. Note that the columns do not have to be in order, but they do have conform to the triplet definition, and the first number CANNOT be x.')
+parser.add_argument('-c', help='comma-separated triplets of numbers, with the 1st number being the outcome/condition we want cytoscape to have as a node, binary; 2nd number being the min/start date e.g. in days; 3rd number being the max/end date; -1 means to skip that category. E.g. -c 3,2,-1 would mean take column 3 for a certain outcome/condition we want Cytoscape to have as a node, typically, yes or no, 1 or 0, and column 2 is the start date, with no end date in this case. Note that the columns do not have to be in order, but they do have conform to the triplet definition, and the first number CANNOT be -1.')
 
 
 ## help if no arguments or -h/--help
@@ -27,7 +27,7 @@ def processHeader(cols, fields):
 	
 	for i in range(0, len(cols), 3):
 				if(cols[i] == -1):
-					sys.exit("First number of the triplet of comma-sep columns CANNOT be 0!")
+					sys.exit("First number of the triplet of comma-sep columns CANNOT be -1!")
 				else:
 					try:
 						col2outcomes[ cols[i] ] = fields[ int(cols[i])-1 ]
