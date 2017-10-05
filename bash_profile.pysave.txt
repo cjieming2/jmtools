@@ -1,0 +1,42 @@
+# .bashrc
+
+# User specific environment and startup programs
+bind '"\e[A":history-search-backward'
+bind '"\e[B":history-search-forward'
+
+alias ls="ls -GH"
+alias imm="cd /Users/jiemingchen/Documents/transplantation/a_donor/immport"
+alias var="cd /Users/jiemingchen/Documents/varimed/pcawg "
+alias mias="cd /Users/jiemingchen/Documents/varimed/mias"
+alias cos="cd /Users/jiemingchen/Documents/courses/"
+alias ipop="cd /Users/jiemingchen/Documents/varimed/ipop"
+
+PS1="[\$?|\u@\h \W]$ "
+
+## PATHS
+PATH=$HOME/fratools:$PATH
+PATH=$HOME/jmtools:$PATH
+PATH=$HOME/software:$PATH
+PATH=$HOME/software/apttools:$PATH
+PATH=$HOME/software/vcftools/bin:$PATH
+PATH=$HOME/jmtools/weblogo/:$PATH
+PATH=$HOME/jmtools/alex_pgenome_checks:$PATH
+PATH=$HOME/jmtools/alleleSeq_wrap:$PATH
+PATH=$HOME/software/bedtools:$PATH
+PATH=$HOME/software/blast+:$PATH
+
+
+export PERL5LIB=$PERL5LIB:$HOME/fratools:$HOME/software/vcftools/src/perl:$HOME/jmtools:$HOME/software/vcftools/lib/perl5/site_perl
+
+# Setting PATH for Python 3.5
+# The original version is saved in .bash_profile.pysave
+PATH="/Library/Frameworks/Python.framework/Versions/3.5/bin:${PATH}"
+export PATH
+
+# Setting PATH for Python 3.5
+# The original version is saved in .bash_profile.pysave
+PATH="/Library/Frameworks/Python.framework/Versions/3.5/bin:${PATH}"
+export PATH
+
+# added by Anaconda3 4.3.1 installer
+export PATH="/Users/jiemingchen/anaconda/bin:$PATH"
