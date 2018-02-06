@@ -1,0 +1,16 @@
+## template
+template_config: ExomeSeq-human-config.txt
+
+## input
+input_file: NA12892_ERR034529_1.fastq.gz
+input_file2: NA12892_ERR034529_2.fastq.gz
+paired_ends: TRUE
+quality_encoding: illumina1.8
+
+## output
+save_dir: NA12892_ERR034529_1000GenomesP3
+overwrite_save_dir: never
+prepend_str: NA12892_ERR034529
+
+## aligner
+alignReads.sam_id: SAM123456
