@@ -31,6 +31,7 @@ my $verbose = 0;
 my $debug = 0;
 my $help;
 my $warned;
+my $USE_STDIN = 0;
 
 #initialize options
 Getopt::Long::Configure ('bundling');
@@ -76,7 +77,7 @@ foreach my $file (@ARGV)
 	#prepare an output file with the original file name but with the csv extension converted to tsv
 	my ($name, $path, $ext) = fileparse($file, '\..*?');
 	#my $outFile = "$name.tsv";
-	if ($debug) {print STDERR "outfile: $outFile\n"}
+	#if ($debug) {print STDERR "outfile: $outFile\n"}
 	#open(OUT, ">$outFile") || die "Cannot open $outFile\n";
 
 	#keeps track of the number of columns expected in the csv file
