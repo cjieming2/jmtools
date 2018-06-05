@@ -36,7 +36,7 @@ my $USE_STDIN = 0;
 #initialize options
 Getopt::Long::Configure ('bundling');
 
-if(!GetOptions ('h'=>\$help, 'v'=>\$verbose,'d'=>\$debug) || scalar(@ARGV)==0)
+if(!GetOptions ('h'=>\$help, 'v'=>\$verbose,'d'=>\$debug) || $help)
 {
     if ($help)
     {
@@ -67,19 +67,31 @@ foreach my $file (@ARGV)
 	if ($verbose) {print "Converting $file to tsv format\n"}
 
 	#checks if it is a .csv file
-	if($file!~/\.csv$/)
+	if($file!~/\.csv$/ && !$USE_STDIN)
 	{
 		die "$file not a csv file";
 	}
 
-	open(IN, $file) || die "Cannot open $file\n";
+	#open(IN, $file) || die "Cannot open $file\n";
 	
 	#prepare an output file with the original file name but with the csv extension converted to tsv
 	my ($name, $path, $ext) = fileparse($file, '\..*?');
 	#my $outFile = "$name.tsv";
 	#if ($debug) {print STDERR "outfile: $outFile\n"}
 	#open(OUT, ">$outFile") || die "Cannot open $outFile\n";
-
+	
+	
+	#IN redirection
+	if(!$USE_STDIN)
+   	{
+		open(IN, $file) || die "cannot open $file\n";
+	}
+	else
+	{
+		*IN = *STDIN;
+	}
+	
+	
 	#keeps track of the number of columns expected in the csv file
 	my $colNo;
 
