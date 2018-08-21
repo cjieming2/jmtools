@@ -21,6 +21,7 @@ OPTION 1
   --string creates a FASTA file from an old FASTA file of any length per line.
            Requires a title with '>' in the first line.
            Outputs a new FASTA file with 60 bases per line.
+           Note no lines between each sequence.
 
 OPTION 2           
   -r the ref file containing all the reference contigs; contains header 
@@ -103,6 +104,7 @@ my $head;
 ITER:while(<FA>)
 {
 	chomp $_;
+	next if (/^\s+$/);
 	my @line = split(//,$_);
 	
 	if(($line[0] eq ">") && ($flag==0))
@@ -125,7 +127,7 @@ close(FA);
 #################################--string######################
 if($string)
 {
-	print OUTPUT "\>$head\n";
+	print OUTPUT "$head\n";
 	printout(*OUTPUT, @sequence);
 	
 	close(OUTPUT);
@@ -146,6 +148,7 @@ my %header2col;
 while(<REFER>)
 {
 	chomp $_;
+	next if (/^\s+$/);
 	my @fields = split(/\t/,$_);
 	chomp @fields;
 	
