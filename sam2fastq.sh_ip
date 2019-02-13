@@ -1,0 +1,21 @@
+#!/bin/bash
+
+###############################
+## USAGE
+###############################
+## sam2fastq.sh <samplename> <BAMFILE>
+## --requires picard 2.9 SamToFastq
+## --now is hardcoded picard and scratch paths
+
+SNAME=$1
+BAM=$2d
+
+java \
+-Xmx64g \
+-Djava.io.tmpdir=/gne/scratch/HumGenet/${SNAME}/tmp \
+-XX:ParallelGCThreads=1 -jar /gne/apps/picard/picard-tools-2.9/picard.jar SamToFastq \
+INPUT=${PWD}/${BAM} \
+FASTQ=${PWD}/${SNAME}_1.fastq \
+SECOND_END_FASTQ=${PWD}/${SNAME}_2.fastq \
+UNPAIRED_FASTQ=${PWD}/${SNAME}_unpaired.fastq \
+VALIDATION_STRINGENCY=SILENT VERBOSITY=WARNING

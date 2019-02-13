@@ -1,0 +1,17 @@
+#!/bin/bash
+
+###############################
+## USAGE
+###############################
+## gsnapBamMerge.sh <samplename> <BAMDIR>
+## --requires BAMtools merge, which also sort
+
+SNAME=$1
+BAMDIR=$2
+BAMLIST=${SNAME}_gsnapbamfilelist.txt 
+
+## create lists of GSNAP BAMs, except .analyzed.bam
+ls ${BAMDIR}/bams/*.bam | grep -v analyzed > ${BAMLIST}
+
+## use BAMtools to merge
+bamtools merge -list ${BAMLIST} -out ${SNAME}_gsnapMerged.bam
