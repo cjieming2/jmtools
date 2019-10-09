@@ -44,7 +44,7 @@ if __name__ == '__main__':
 		#### OUTPUT header ####
 		## a tab delimited file with 3 cols
 		f_output = 'imgt_parsed_' + os.path.basename(sys.argv[1]).strip().split('.')[0] + '.txt'
-		print("HLA_allele\texon_status\tex2_aa_seq")
+		print("HLA_allele\texon_status\tex2_aa_seq\tHLA_gene")
 		
 		## open hla.dat
 		## biopython to read format
@@ -169,6 +169,8 @@ if __name__ == '__main__':
 								exonstatus[1] = '+'
 								
 								#print("sta_e2_gpos = %i, end_e2_gpos = %i, exonctr = %i" % (sta_e2_gpos, end_e2_gpos, exonctr)) ## debug
+								#print("sta_e2_ppos = %i, end_e2_ppos = %i, exonctr = %i" % (sta_e2_ppos, end_e2_ppos, exonctr)) ## debug
+								#print(bline_FT_CDS_full[sta_e2_ppos:end_e2_ppos]) ## debug
 								continue
 							
 							elif bline_FT[1] == '/number="3"':
@@ -221,9 +223,8 @@ if __name__ == '__main__':
 					## make sure the termination counter == entryctr
 					termctr += 1
 					
-					if termctr != entryctr: 
-						print("termination counter // %i != number of entries %i so far!" % (termctr, entryctr))
-						sys.exit(1)
+					assert (termctr == entryctr), "ERROR: termination counter // %i != number of entries %i so far!" % (termctr, entryctr)
+					
 					
 					#### OUTPUT ####
 					
@@ -233,7 +234,9 @@ if __name__ == '__main__':
 					##       currently, everything is set to 8 '-' by default, where a '+' is existence of an exon
 					##       TODO: partial exons info are not incorporated
 					## col3: exon2 aa sequence
-					print("%s\t%s\t%s" % (hla_allele, ''.join(exonstatus), bline_FT_CDS_full[sta_e2_ppos:end_e2_ppos]))
+					## col4: hla gene
+					hla_gene = re.sub(r"(HLA-)*(\w.*)\*.*", r"\2", hla_allele)
+					print("%s\t%s\t%s\t%s" % (hla_allele, ''.join(exonstatus), bline_FT_CDS_full[sta_e2_ppos:end_e2_ppos], hla_gene))
 					
 					
 					
@@ -251,14 +254,15 @@ if __name__ == '__main__':
 					start_e2_ppos = 0
 					end_e2_ppos = 0
 					
-					sta_gpos = 0
-					end_gpos = 0
-					len_gpos = 0
-					spill_gpos = 0
 					sta_e2_gpos = 0
 					end_e2_gpos = 0
 					len_e2_gpos = 0
 					len_e2_ppos = 0
+					
+					sta_e1_gpos = 0
+					end_e1_gpos = 0
+					len_e1_gpos = 0
+					len_e1_ppos = 0
 					
 					exonstatus = list('--------')
 				
