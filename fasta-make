@@ -28,8 +28,6 @@ OPTION 2
      (a)start-pos, (b)end-pos
      
   fasta-file required with -r option; 1 FASTA sequence per file.
-  
-  -o output filename
  
   -p boolean;
   1: Given a list of start- and end-positions, this script concats all these into a new fasta file from a user-defined reference fasta file. 
@@ -39,9 +37,11 @@ OPTION 2
   it simply assumes they are in order. Please do a sort
   before running this script.
 	
+	STDOUT
+	
   Example:
-     fasta-make -r contigs.txt -p 1 jm.fa 
-     fasta-make -o jm --string strings.fa
+     fasta-make -r contigs.txt -p 1 jm.fa
+     fasta-make -o out.fasta --string strings.fa > 
      
   Default outputs: new-<filename>.fa
   Output will be concatenated with .fa extension.
@@ -72,6 +72,8 @@ if(!GetOptions ('h'=>\$help, 'o=s'=>\$outputname, 'r=s'=>\$reffile, 'string'=>\$
     }
 }
 
+
+
 ## FASTA file (or string file if --string)
 my $fafile = $ARGV[0];
 open(FA, $fafile) || die "Cannot open $fafile";
@@ -88,7 +90,6 @@ else
 {
 	$ofile = "$outputname.fa";
 }
-
 open(OUTPUT, ">$ofile") || die "Cannot open $ofile";
 
 ## fasta global variables

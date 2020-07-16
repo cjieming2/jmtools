@@ -1,0 +1,147 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use fralib;
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+fasta-make60
+
+=head1 SYNOPSIS
+
+ fasta-make [options] <fastafile>
+
+  -h help
+  
+
+					 creates a FASTA file from an old FASTA file of any length per line.
+           Requires a title with '>' in the first line.
+           Outputs a new FASTA file with 60 bases per line.
+           Can take multiple sequences in FASTA
+           skip if empty or white spaces in line
+           STDIN STDOUT
+
+
+	
+  Example:
+     fasta-make60 strings.fa > output.fasta
+       
+=head1 DESCRIPTION
+
+=cut
+
+#option variables
+my $help;
+my $reffile;
+my $string = '';
+my $pflag = 0; ## print multiple FASTAs or concatenate
+my $outputname = 0;
+my $USE_STDIN = 0;
+
+#initialize options
+Getopt::Long::Configure ('bundling');
+
+if(!GetOptions ('h'=>\$help) || scalar(@ARGV)!=1)
+{
+    if ($help)
+    {
+        pod2usage(-verbose => 2);
+    }
+    else
+    {
+        pod2usage(1);
+    }
+}
+
+#read from STDIN
+if (scalar(@ARGV)==0)
+{
+	#allows the control to enter the file iteration for-loop
+	push (@ARGV, "stdout");
+	$USE_STDIN = 1;
+}
+
+## FASTA file (or string file if --string)
+my $fafile = $ARGV[0];
+
+#IN redirection
+	if(!$USE_STDIN)
+   	{
+   		open(IN, $fafile) || die "Cannot open $fafile";
+	}
+	else
+	{
+		*IN = *STDIN;
+	}
+	
+
+
+## fasta global variables
+my $faheaderProcessed = 0;
+my %faheader2col;
+my @sequence=();
+my $flag = 0;
+my @newseq=();
+my $head;
+
+######################################FASTA############
+## read FASTA (or string file if --string) file to obtain sequence
+ITER:while(<IN>)
+{
+	chomp $_;
+	next if (/^\s*$/); ## skip if empty or only white space
+	my @line = split(//,$_);
+	
+	if(($line[0] eq ">") && ($flag == 0)){ ## first sequence
+		$head = join('',@line);
+		print  "$head\n";
+		$flag = 1;
+		next ITER;
+	}
+	elsif(($line[0] ne ">") && ($flag == 0)){
+		die "FASTA file (or string file if --string on) does not have title that starts with '>'!:$!";
+	}
+	elsif(($line[0] eq ">") && ($flag == 1)){ ## inner sequences
+		# print previous sequence in 60 and reinit
+		printout(@sequence);
+		print "\n";
+		@sequence=();
+		
+		# print inner sequence header
+		$head = join('',@line);
+		print  "$head\n";
+
+	}
+	else{
+		push(@sequence, @line);
+	}
+}## end of one line of fa file
+
+# print final previous sequence in 60
+printout(@sequence);
+print "\n";
+		
+close(IN);
+
+################################################################
+## printing
+sub printout
+{
+	my(@seqtoprint) = (@_[0..$#_]);
+	
+	for(my $i=0;$i<@seqtoprint;$i++)
+	{	
+		if(($i == 0) || (($i % 60)!=0)) ## if $i is not divisible by 60 keep printing
+		{
+			print "$seqtoprint[$i]";
+		}
+		else ## if it is divisible by 60
+		{
+			print "\n$seqtoprint[$i]";
+		}
+	}
+}
