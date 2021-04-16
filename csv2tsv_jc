@@ -2,7 +2,7 @@
 
 use warnings;
 use strict;
-use fralib;
+#use fralib;
 use File::Basename;
 use Getopt::Long;
 use Pod::Usage;
