@@ -38,6 +38,9 @@ pip install --upgrade pip
 echo "Installing numpy, pandas, matplotlib, jupyter..."
 pip install numpy pandas matplotlib jupyter
 
+echo "Installing scikit-learn, seaborn..."
+pip install scikit-learn seaborn
+
 # Save installed packages to requirements.txt
 echo "Saving packages to requirements.txt..."
 pip freeze > requirements.txt
